@@ -1,5 +1,22 @@
 <!--
 Sync Impact Report
+- Version change: 1.6.0 → 1.7.0
+- Bump rationale: 原則 V にメトリクスとトレースの提供を追加し、ログ・メトリクス・トレースの
+  提供形式 (標準出力 / Prometheus / OTLP・OTLP over HTTP) を規範として確定した。
+  原則の実質的な拡張のため MINOR。
+- Modified principles:
+  - V. 可観測性と運用性: ログ / メトリクス / トレース / 共通 の 4 部構成に改稿。
+    OTLP 送出の既定無効化、ラベル・属性への機微値混入の禁止、送出失敗時の処理継続を追加。
+- Modified sections:
+  - 技術・配布制約 > ExternalDNS webhook provider API: `/metrics` を SHOULD から MUST へ。
+  - 技術・配布制約 > セキュリティ: コンテナイメージとチャートの既定拒否:
+    OTLP 送出先への egress を opt-in 化。exposed ポートの ingress 制限と、
+    healthz/metrics 同居に伴う制約を明記。
+- Added sections: なし
+- Removed sections: なし
+- Deferred TODOs: なし
+
+Sync Impact Report (v1.6.0)
 - Version change: 1.5.0 → 1.6.0
 - Bump rationale: バイナリの ASLR 有効化を MUST として追加し、あわせて scratch 選択の
   実装手段を plan へ委譲した。規範の追加のため MINOR。
@@ -175,11 +192,45 @@ ExternalDNS は本サービスを無人で繰り返し呼び出すため、冪�
 ### V. 可観測性と運用性
 
 障害発生時に、Pod のログと標準的な Kubernetes の操作だけで原因を切り分けられること (MUST)。
+ログ・メトリクス・トレースの 3 種類のテレメトリを提供すること (MUST)。
 
-- ログは構造化ログとし、標準出力へ出力すること (MUST)。ログレベルは設定で変更可能とすること (MUST)。
-- API トークン、認証情報、およびそれらを含むリクエストヘッダを、ログ・エラーメッセージ・
-  メトリクスに出力しないこと (MUST NOT)。
+*ログ*
+
+- ログは構造化ログとし、標準出力へ出力すること (MUST)。標準出力への出力は常に有効であり、
+  他の出力先の設定によって停止しないこと (MUST NOT)。
+- 標準出力に加えて、OpenTelemetry 形式でのログ出力を提供すること (MUST)。
+  送出は OTLP (gRPC) および OTLP/HTTP に対応すること (MUST)。
+- ログレベルは設定で変更可能とすること (MUST)。
 - DNS レコードを変更する操作は、対象ゾーン・レコード名・操作種別・結果をログに残すこと (MUST)。
+
+*メトリクス*
+
+- メトリクスは Prometheus 形式と OpenTelemetry 形式の 2 種類で提供すること (MUST)。
+  - Prometheus 形式は `/metrics` エンドポイントで公開すること (MUST)。
+  - OpenTelemetry 形式は OTLP (gRPC) および OTLP/HTTP での送出に対応すること (MUST)。
+- 両形式が同一の計測値を表すこと (MUST)。形式ごとに異なる意味の値を持たせないこと (MUST NOT)。
+- DNS レコードの変更操作について、成否と件数を計測できること (MUST)。
+
+*トレース*
+
+- トレースは OpenTelemetry 形式で提供すること (MUST)。送出は OTLP (gRPC) および
+  OTLP/HTTP に対応すること (MUST)。
+- ExternalDNS からのリクエスト受信から DPF API 呼び出しまでを 1 つのトレースとして
+  追跡可能にすること (MUST)。
+
+*共通*
+
+- API トークン、認証情報、およびそれらを含むリクエストヘッダを、ログ・エラーメッセージ・
+  メトリクス・トレースのいずれにも出力しないこと (MUST NOT)。
+- ゾーン名・レコード名・レコード値を、メトリクスのラベルおよびトレースの属性に
+  既定で含めないこと (MUST NOT)。含める場合は明示的な opt-in とすること (MUST)。
+  これらは基数が非有界であり、かつ認証なしに公開されうるため。ログへの出力は
+  この制限の対象外とする。
+- OTLP による送出は既定で無効とすること (MUST)。送出先が設定された場合にのみ有効化すること
+  (MUST)。テレメトリの外部送出は明示的な許可を要する (原則 VI)。
+- OTLP 送出先への接続では TLS 証明書の検証を既定で有効とすること (MUST)。
+- テレメトリの送出失敗によって、DNS レコードの処理を停止させないこと (MUST NOT)。
+  送出失敗はログに記録し、本来の処理は継続すること (MUST)。
 - ヘルスチェック用エンドポイントを提供し、Kubernetes の liveness/readiness probe から
   利用可能にすること (MUST)。
 - 設定は環境変数またはコマンドライン引数で与え、認証情報は Secret から注入すること (MUST)。
@@ -187,7 +238,10 @@ ExternalDNS は本サービスを無人で繰り返し呼び出すため、冪�
 
 **根拠**: 本サービスはサイドカーとして無人で動作し、利用者が最初に見るのはログだけである。
 何が起きたかがログから読み取れなければ、利用者は ExternalDNS 側と DPF 側のどちらに問題が
-あるのかすら判断できない。
+あるのかすら判断できない。ログだけでは「遅い」「たまに失敗する」といった継続的な劣化を
+検知できないためメトリクスを、ExternalDNS から DPF API までのどの区間で時間や失敗が
+生じたかを特定するためトレースを、それぞれ必要とする。標準出力を常時有効とするのは、
+テレメトリ基盤が未整備または障害中の環境でも、最低限の調査手段を残すためである。
 
 ### VI. Default-Deny (NON-NEGOTIABLE)
 
@@ -308,7 +362,8 @@ DNS の大文字小文字規則と一致せず、ドットでの分割はエス�
   - `POST /adjustendpoints` — プロバイダ固有の調整。成功時 `200`
 - exposed エンドポイントとして以下を提供すること (MUST):
   - `GET /healthz` — liveness/readiness probe 用
-  - `GET /metrics` — Open Metrics の公開 (SHOULD)
+  - `GET /metrics` — Prometheus 形式のメトリクスの公開 (MUST)。上流仕様では optional だが、
+    原則 V により本プロジェクトでは必須とする。
 - エラーは仕様に従って区別すること (MUST)。一時的エラーは `5xx`、恒久的エラーは `4xx` を返し、
   一時的エラーを `4xx` として返さないこと (MUST NOT)。ExternalDNS 側のリトライ判断を誤らせるため。
 - 待ち受けポートの既定値は、provider エンドポイントを `8888`、exposed エンドポイントを `8080`
@@ -374,8 +429,15 @@ DNS の大文字小文字規則と一致せず、ドットでの分割はエス�
 - 本サービスは Kubernetes API を利用しない。`automountServiceAccountToken: false` を既定とし、
   Role/ClusterRole を既定で作成しないこと (MUST)。
 - NetworkPolicy を既定で有効とし、ingress・egress ともに全拒否を起点に、必要な通信のみを
-  明示的に許可すること (MUST)。許可対象は DPF API エンドポイントへの egress と名前解決に
-  限ること (MUST)。
+  明示的に許可すること (MUST)。既定で許可する egress は DPF API エンドポイントと
+  名前解決に限ること (MUST)。
+- OTLP 送出先への egress は、送出先が設定された場合にのみ許可すること (MUST)。
+  OTLP を使わない利用者の NetworkPolicy に、テレメトリ用の穴を既定で開けないこと (MUST NOT)。
+- exposed ポート (既定 `8080`) への ingress は、probe とスクレイプに必要な送信元に
+  限定すること (MUST)。全ての送信元に開放しないこと (MUST NOT)。
+- `/healthz` と `/metrics` は同一ポートで提供されるため、NetworkPolicy で両者を区別できない。
+  probe を通す設定は同時に `/metrics` を同じ送信元へ露出させる。この前提のもとで、
+  メトリクスに機微な値を含めない要件 (原則 V) を満たすこと (MUST)。
 - provider ポートを公開する Service を既定で作成しないこと (MUST NOT)。
 - CPU・メモリの requests と limits を既定で設定すること (MUST)。
 - 認証情報は Secret 参照としてのみ受け取ること (MUST)。認証情報をリポジトリ、イメージ、
@@ -440,4 +502,4 @@ DNS の大文字小文字規則と一致せず、ドットでの分割はエス�
   リポジトリルートの `CLAUDE.md` に置き、本文書とは分離すること (MUST)。
   本文書は「何を守るか」を、`CLAUDE.md` は「どう作業するか」を扱う。
 
-**Version**: 1.6.0 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-09-04
+**Version**: 1.7.0 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-09-04
