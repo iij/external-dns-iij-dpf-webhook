@@ -1,0 +1,334 @@
+# Phase 0 Research: ExternalDNS webhook provider 本体
+
+**Feature**: [spec.md](./spec.md) | **Date**: 2026-09-04
+
+本書は plan の前提となる技術判断を記録する。実測した項目は「検証」に方法と結果を記す。
+
+---
+
+## R1. ASLR (PIE) と scratch の両立
+
+**Decision**: alpine ビルダー上で cgo を有効にし、外部リンカで static-pie を生成する。
+
+```
+CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -buildmode=pie \
+  -tags 'netgo osusergo' \
+  -ldflags '-s -w -linkmode external -extldflags "-static-pie"' \
+  -o /out/app .
+```
+
+**Rationale**: constitution v1.6.0 が ASLR 有効を MUST とし、v1.5.0 がベースイメージを
+`scratch` に固定している。この 2 つは素直に組み合わせると両立しない。
+
+**検証**: 実際にビルドして ELF を確認した。
+
+| ビルド方法 | ELF Type | PT_INTERP | scratch |
+|---|---|---|---|
+| `CGO_ENABLED=0` (通常) | EXEC | なし | 動くが **ASLR 無効** |
+| `CGO_ENABLED=0 -buildmode=pie` | DYN | **あり** (`/lib64/ld-linux-x86-64.so.2`) | **動かない** |
+| 上記レシピ (cgo + static-pie) | DYN | なし | **動く** |
+
+`CGO_ENABLED=0` との組み合わせでは内部リンカが動的 PIE を生成し、`scratch` には
+動的リンカが存在しないため起動できない。外部リンカと `-static-pie` の指定が必須である。
+
+**Alternatives considered**:
+
+- `CGO_ENABLED=0 -buildmode=pie`: 上表のとおり scratch で起動できない
+- distroless への変更: constitution v1.5.0 の改訂が必要。ASLR のためだけに
+  ベースイメージの決定を覆す理由はない
+- ASLR を諦める: constitution v1.6.0 の MUST に反する
+
+**注意**: cgo が有効になるため、名前解決とユーザ参照を純 Go 実装に固定する
+`netgo` / `osusergo` タグを必須とする。これがないと静的リンク環境で NSS の
+動的読み込みに失敗し、名前解決が壊れる。
+
+---
+
+## R2. CA 証明書の scratch への同梱
+
+**Decision**: ビルダーの `ca-certificates` パッケージから
+`/etc/ssl/certs/ca-certificates.crt` を最終イメージへコピーする。
+
+**Rationale**: constitution が「TLS 証明書検証が成立する状態でイメージを配布すること」を
+MUST としている。`scratch` に証明書ストアはないため、イメージ自身が持つ必要がある。
+Go の TLS スタックは `/etc/ssl/certs/ca-certificates.crt` を既定の探索先の 1 つとするため、
+このパスに置けば追加の設定なしに検証が働く。
+
+**検証**: R1 のバイナリを scratch イメージに入れ、`USER 65532:65532` で実行して
+外部 HTTPS エンドポイントへの接続を確認した。
+
+- DNS 解決: 成功
+- TLS 接続: 成功 (HTTP 200)
+
+これにより「静的 PIE」「scratch」「非 root 数値 UID」「名前解決」「TLS 検証」が
+同時に成立することを実機で確認済み。
+
+**Alternatives considered**:
+
+- `golang.org/x/crypto` などで証明書をバイナリに埋め込む: 更新のたびに再ビルドが必要で、
+  ビルダーのパッケージ更新に追随する方が運用が単純
+- 証明書を実行時に Secret でマウント: 利用者に必須の手順を増やす
+
+---
+
+## R3. DPF の変更適用モデル
+
+**Decision**: 公開中のレコード全件を読み、変更セットをメモリ上でマージし、
+`PatchZoneAtomicChanges` (レコードの一括更新とゾーン反映) で 1 回の原子的操作として
+適用する。戻り値 `*AsyncResponse` を `JobsAPI.SyncWait` で待ち合わせる。
+
+```
+GetRecordCurrents (公開中の全件)
+  → 変更セットをマージ
+  → 投入前ガード
+  → PatchZoneAtomicChanges (overwrite_soa=false, overwrite_zone_apex_ns=false)
+  → SyncWait
+```
+
+**Rationale**: DPF は編集を即時公開せず保留し、反映操作で確定する。
+`/zones/{ZoneId}/atomic_changes` は「レコードの一括更新とゾーンの反映をアトミックに
+処理します」と定義されており、更新と反映が 1 回で完結する。
+
+この方式を採る決め手は 3 つある。
+
+1. **他者の保留変更を巻き込まない。** 代替案 (下記) の `PatchZoneChanges` は
+   「編集中レコードのゾーン反映」であり、ゾーン内の**全ての保留変更**を公開する。
+   運用者が DPF コンソールで作業途中の未反映変更を持っていた場合、本 provider の適用が
+   それを勝手に公開してしまう。`atomic_changes` の対象は渡した集合に限られる
+2. **FR-012 (部分成功を成功としない) が原子性で構造的に保証される。** 保留状態が
+   発生しないため、中断時に巻き戻す処理そのものが不要になる
+3. **FR-029 (apex NS を削除しない) と SOA の保護を API 側が担保する。**
+   `overwrite_soa` と `overwrite_zone_apex_ns` は既定 false であり、これらは
+   上書き対象から除外される。自前ロジックの正しさに依存しない
+
+FR-011 (反映完了前に成功を返さない) は `SyncWait` による待ち合わせで満たす。
+
+**管理対象外レコードの保全**: 一括更新は渡さなかったレコードを削除するため、
+管理対象外のレコード (`CAA` `TLSA` `DS` `SVCB` `HTTPS` `ANAME` および対象外ゾーンの
+種別) も投入する集合に含めなければならない。読み取り型と書き込み型の設定可能項目は
+一致しており、無損失で往復できる。
+
+| `Record` (読み) | `OverwriteRecordsInner` (書き) |
+|---|---|
+| `Name` `Ttl` `Rrtype` `Rdata` `Description` `Labels` | すべて存在 |
+| `Id` `State` `Operator` | なし (いずれもサーバ管理項目で設定不可) |
+
+**管理対象外のレコードは本プロジェクトのドメインモデルを通さず、読み取った値を
+逐語的にコピーして書き戻す (MUST)。** 変換を挟まないことで、変換バグが管理対象外の
+レコードを壊す経路そのものを作らない。
+
+**Alternatives considered**:
+
+- **個別編集 + `PatchZoneChanges` による反映**: レコードを 1 件ずつ編集して保留状態にし、
+  ゾーン単位で反映する方式。触れるのが変更対象のレコードだけで済み、送信量も小さい。
+  しかし反映が**ゾーン内の全保留変更**を対象とするため、他者が残した未反映の変更を
+  意図せず公開する。反映前に `GetRecordDiffs` を確認しても、確認と反映の間の競合は
+  消えない。加えて、途中で失敗した場合に保留変更の破棄 (`DeleteZoneChanges`) が必要になり、
+  FR-012 の成立が巻き戻し処理の正しさに依存する。採用しない
+- 反映を待たずに成功を返す: FR-011 に反する
+
+**この方式の弱点と対策**: 失敗時の影響範囲がゾーン全体に及ぶ。マージの誤りが
+管理対象外のレコードを消しうる。次の 2 点で抑える。
+
+1. 管理対象外レコードの逐語コピー (上記)
+2. **投入前ガード**: マージ結果が、変更セットに含まれないレコードを削除する内容に
+   なっていた場合、適用を中止して一時的な失敗とする。壊れ方を「消える」ではなく
+   「適用されない」に閉じ込める (原則 IV の fail closed)
+
+**未確定 (実装時に検証用ゾーンで確認)**:
+
+- 1,000 件規模のレコードを 1 回の `atomic_changes` で投入できるか。
+  リクエストスキーマに件数上限の宣言はないが、実際の上限は未確認
+- ゾーンに他者の保留変更が存在する状態で `atomic_changes` を実行したときの挙動
+
+---
+
+## R4. 同時実行の制御
+
+**Decision**: ゾーン単位の変更適用を `utils.Mutex` (`NewMutex` / `LockWait` / `Unlock`) で
+直列化する。**ロックの範囲は変更適用ハンドラの内側に閉じる。**
+
+```
+POST /records ハンドラ
+  ├─ ロック取得
+  ├─ GetRecordCurrents   ← マージの土台をここで読み直す
+  ├─ マージ・ガード
+  ├─ PatchZoneAtomicChanges + SyncWait
+  └─ ロック解放
+```
+
+**Rationale**: ロックが守るのは「マージの土台となる読み取り」と「書き込み」の間だけである。
+この 2 つの間に他者がゾーンを変更すると、その変更が古い読み取り結果で上書きされて失われる
+(lost update)。区間が 1 つのハンドラ内に収まるため、ロックの保持時間は短い。
+
+**webhook の `GET /records` はロックの対象外とする。** ExternalDNS の
+`GET /records` と `POST /records` は独立した HTTP 要求であり、`GET` の後に `POST` が
+来る保証はない。両者をまたいでロックを保持すると、`POST` が来ないままロックが残り、
+ゾーンが操作不能になる。したがって `GET /records` は素の読み取りとし、
+適用時に改めて `GetRecordCurrents` で読み直す。
+
+**この設計が守らないもの**:
+
+1. ExternalDNS が `GET /records` で得た snapshot は、`POST /records` が届く時点では
+   古くなっている可能性がある。変更セットはその古い snapshot から算出されている。
+   これはロックでは防げず、防ぐ必要もない。ExternalDNS はあるべき状態を宣言する
+   仕組みであり、ずれは次の周回で再計算される
+2. **ロックを取らない変更者の変更は守れない。** ロックは同じ排他機構に参加する者の間で
+   しか効かない。適用の読み取りと書き戻しの区間に、ロックを取らない他者の変更が入ると、
+   その変更は書き戻しによって取り消される。本 provider はこれを検出しない
+
+2 に対しては、技術的な対策ではなく**利用前提条件**で対処する
+(spec の PC-001〜PC-003)。同一ゾーンを機械的に変更する他の仕組みは、同じロックを
+取得するか、あるべき状態へ継続的に収束する動作 (reconcile) を持つことを求める。
+本 provider 自身は後者を満たす。ExternalDNS が周期的に再計算するため、
+取り消されても再適用される。
+
+`dpf-go` はゾーンの SOA レコードのラベルを用いた排他制御を提供しており、DPF 側の状態のみで
+排他が成立する。ExternalDNS が複数レプリカで動く場合や、運用者が同時に DPF コンソールを
+操作する場合に効く。`WithTTL` によりロックの有効期限を設定し、異常終了時にロックが
+残り続けないようにする。
+
+**Alternatives considered**:
+
+- **`GET /records` から `POST /records` までロックを保持**: 両者は別々の HTTP 要求であり、
+  `POST` が来る保証がない。ロックが残留してゾーンが操作不能になる。採用しない
+- プロセス内ロックのみ: 同一 Pod 内でしか効かず、複数レプリカで破綻する
+- ロックなし: 適用中の読み取りと書き込みの間で lost update が起き、他者の変更を
+  黙って取り消す
+- 書き込み直前のロック取得: 適用内の読み取りとの間の競合を防げず、ロックの意味がない
+
+**古い変更セットの扱い**: 変更セットに含まれる「更新前の値」が、適用時点の現在値と
+一致しない場合がある (`GET` と `POST` の間に他者が変更した場合)。管理対象のレコードに
+ついては、変更セットが指定する「更新後の値」を適用する。ExternalDNS が管理する
+レコードの権威は ExternalDNS 側にあり、ずれは次の周回で収束するため。
+一致しないことを理由に適用を拒否すると、差分が解消しないまま振動する (SC-007)。
+
+---
+
+## R5. アクセストークンの供給
+
+**Decision**: `utils.WithTokenFile(path)` (ファイル) と `utils.WithTokenProvider(p)`
+(シークレット管理サービス) の 2 経路のみを設定として公開する。
+`misc/vault`, `misc/aws`, `misc/azure`, `misc/gcp` の `NewTokenProvider` が返す関数を
+`WithTokenProvider` に渡す。
+
+**Rationale**: constitution v1.8.0 がこの 2 経路への限定を MUST としている。
+`dpf-go` の `TokenProvider` は**リクエストごとに評価される**ため、FR-037
+(再起動なしのローテーション追随) はライブラリの仕組みでそのまま満たせる。
+`TokenFromFile` は毎回ファイルを読むため、Secret のマウント内容が更新されれば
+次のリクエストから新しいトークンが使われる。
+
+呼び出し頻度を抑えたい場合は `WithTokenTTL` でキャッシュ期間を設定できる。
+シークレット管理サービス利用時のみ設定可能とし、ファイル読み取りには既定で用いない
+(ファイル読み取りは十分に安価であり、ローテーション反映を遅らせる理由がない)。
+
+**採用しない経路**: `utils.WithToken(string)` (リテラル) と環境変数 `DPF_API_TOKEN`
+(`utils.NewClient()` の既定動作) は、constitution v1.8.0 が MUST NOT としているため
+設定として公開しない。
+
+**エラーの扱い**: `TokenError` はライブラリ側でリトライされない設計であり、
+FR-038 (取得失敗は恒久的失敗) と一致する。`TokenFromFile` は読み取り失敗時に
+ファイル内容をエラーへ含めないため、FR-039 も満たす。
+
+---
+
+## R6. 対応レコード種別の対応関係
+
+**Decision**: spec の 9 種別を `dpf.RecordsRrtype` へ静的に対応付ける許可リストを持つ。
+
+`dpf-go` が定義する種別は 16 個 (A, AAAA, ANAME, CAA, CNAME, DS, HTTPS, MX, NAPTR,
+NS, PTR, SOA, SRV, SVCB, TLSA)。ExternalDNS の `KnownRecordTypes` は 10 個
+(A, AAAA, CNAME, TXT, SRV, NS, PTR, MX, NAPTR, DNAME)。
+
+- 交差 = 9 種別: `A` `AAAA` `CNAME` `TXT` `SRV` `NS` `PTR` `MX` `NAPTR` → 対応する
+- DPF のみ = `ANAME` `CAA` `DS` `HTTPS` `SOA` `SVCB` `TLSA` → 読み飛ばす。変更しない
+- ExternalDNS のみ = `DNAME` → DPF に対応する種別がなく、要求されても適用しない
+
+**Rationale**: spec FR-026・FR-027 の裏付け。ライブラリの列挙値を実際に確認した結果、
+spec が manual から導いた範囲と一致した。
+
+---
+
+## R7. ドメイン名の表現
+
+**Decision**: 内部表現は `dns.CanonicalName` の出力 (小文字・末尾ドット) に固定し、
+専用の型で保持する。境界でのみ変換する。
+
+| 境界 | 方向 | 変換 |
+|---|---|---|
+| ExternalDNS からの受信 | 入 | `dns.CanonicalName` を適用 |
+| ExternalDNS への応答 | 出 | webhook 契約が期待する表現へ変換 |
+| DPF からの受信 | 入 | `dns.CanonicalName` を適用 |
+| DPF への送信 | 出 | 正規化名をそのまま渡す (DPF は正規化状態で扱う) |
+
+**Rationale**: constitution v1.4.0 が「正規化済みか否かが呼び出し側に依存する関数を
+作らない (MUST NOT)」「正規化状態は型または境界で保証する (MUST)」と定めている。
+型で保証する方が、境界の実装漏れを型検査で検出できる。
+
+**未確定 (契約テストで固定)**: ExternalDNS が `Endpoint.DNSName` に末尾ドットを
+含めない表現を用いるため、応答時の変換が必要になる可能性が高い。
+上流の実際の表現を契約テストで固定し、その結果を実装に反映する。
+constitution はこの変換を「応答を組み立てる境界に限定する」ことを求めている。
+
+---
+
+## R8. テレメトリの構成
+
+**Decision**: OpenTelemetry の計測器を単一の組として定義し、**メトリクスは 2 つの
+リーダーを接続する**。Prometheus 形式は pull 用のリーダー、OTLP は push 用のリーダーとする。
+
+**Rationale**: 原則 V が「両形式が同一の計測値を表すこと (MUST)。形式ごとに異なる意味の
+値を持たせないこと (MUST NOT)」を求めている。計測器を 1 組にしてリーダーを 2 つ付ければ、
+この性質は構成上自動的に満たされる。Prometheus 用と OTLP 用に別々の計測コードを書くと、
+両者が乖離しうる。
+
+ログとトレースも OpenTelemetry の SDK に載せる。標準出力への構造化ログは
+OTLP 送出の設定と独立に常時有効とする (原則 V)。
+
+`dpf-go` は OpenTelemetry に対応しているため、DPF 呼び出しは同一トレースに接続できる。
+これにより FR-022 (受信から DPF 呼び出しまでを 1 つの流れとして追跡) を満たす。
+
+**既定値**: OTLP の送出先が未設定なら送出しない (原則 VI)。
+
+---
+
+## R9. テストの構成
+
+**Decision**: 3 層に分ける。
+
+| 層 | 対象 | 外部依存 |
+|---|---|---|
+| 契約テスト | webhook API の要求・応答の形 | なし |
+| 統合テスト | provider ロジック + DPF クライアント層 | DPF API をモック |
+| 単体テスト | 名前の正規化・範囲判定・種別変換・調整 | なし |
+
+**Rationale**: `dpf-go` は API を `dpf.RecordsApi` / `dpf.ZonesApi` などの
+インタフェースとして公開しており (`interfaces.go`)、`utils` の関数もこれらを
+引数に取る。実 API に到達せずに上位層を検証できるため、原則 II が求める
+「上位層のテストが実際の DPF API に到達しないこと (MUST)」を満たせる。
+
+原則 III により、いずれの層もテストを先に書く。
+
+---
+
+## R10. 非公開モジュールへの依存
+
+**Decision**: 開発期間中は `GOPRIVATE=github.com/iij/dpf-go` を設定し、CI では
+認証付きでモジュールを取得する。`dpf-go` 公開後にこの設定を外す。
+
+**Rationale**: `github.com/iij/dpf-go` は本機能の完成後に公開される予定であり、
+現時点では非公開である。`go.mod` に固定バージョンで記載する点は公開前後で変わらない。
+
+**注意**: 本リポジトリを `dpf-go` より先に公開すると、外部からビルドできない状態になる。
+公開順序は `dpf-go` を先とする。
+
+---
+
+## 解決済みの NEEDS CLARIFICATION
+
+Phase 0 開始時点で spec に未解決の項目はなかった。plan 作成中に生じた技術的な
+不確定要素は R1〜R10 で解決した。実装時に確認を要する残件は次の 2 点で、いずれも
+設計を左右せず、契約テストと実装内で確定できる。
+
+1. R3: 他者が残した保留変更の検出方針 (反映前の `GetRecordDiffs` 確認で対処)
+2. R7: ExternalDNS 応答時の名前表現 (契約テストで固定)
