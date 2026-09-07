@@ -1,0 +1,28 @@
+# Build output
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Go workspace
+go.work
+go.work.sum
+vendor/
+
+# Credentials and local config — never commit
+*.pem
+*.key
+*.crt
+.env
+.env.*
+/token
+/secrets/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+.vscode/
+.idea/

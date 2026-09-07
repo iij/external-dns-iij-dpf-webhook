@@ -1,0 +1,48 @@
+# 2 段構成。ビルダーで static PIE を作り、scratch に必要最小限だけを置く。
+#
+# constitution v1.5.0: ベースイメージは scratch (MUST)
+# constitution v1.6.0: ASLR が有効な状態でビルドすること (MUST)
+#
+# research R1 で実測した結果:
+#   CGO_ENABLED=0            → EXEC     : ASLR 無効
+#   CGO_ENABLED=0 + pie      → DYN+INTERP: scratch に動的リンカがなく起動しない
+#   下記 (cgo + 外部リンカ)  → DYN      : PT_INTERP なし。ASLR 有効かつ scratch で動作
+#
+# cgo を有効にするため、名前解決とユーザ参照を純 Go 実装に固定する netgo / osusergo が
+# 必須になる。これを外すと静的リンク環境で NSS の動的読み込みに失敗し、名前解決が壊れる。
+FROM docker.io/library/golang:1.27-alpine AS build
+
+# gcc と musl-dev は -static-pie の外部リンクに必要。
+# ca-certificates は最終段へコピーする証明書ストアの入手元。
+RUN apk add --no-cache gcc musl-dev ca-certificates
+
+WORKDIR /src
+
+# 依存の解決を先に済ませ、ソース変更でのキャッシュ破棄を避ける。
+COPY go.mod go.sum* ./
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
+      -trimpath \
+      -buildmode=pie \
+      -tags 'netgo osusergo' \
+      -ldflags '-s -w -linkmode external -extldflags "-static-pie"' \
+      -o /out/webhook ./cmd/webhook
+
+FROM scratch
+
+# scratch には証明書ストアがない。これを欠くと DPF API への TLS 検証が常に失敗する。
+# 出所はビルダーの ca-certificates パッケージであり、更新はビルダーイメージの更新で行う。
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
+COPY --from=build /out/webhook /webhook
+
+# scratch には /etc/passwd がないためユーザ名は解決できない。数値 UID で指定する。
+USER 65532:65532
+
+# provider エンドポイント (ループバックのみ) と exposed エンドポイント。
+EXPOSE 8080
+
+ENTRYPOINT ["/webhook"]

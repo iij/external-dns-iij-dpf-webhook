@@ -1,0 +1,62 @@
+# golangci-lint configuration.
+#
+# constitution v1.8.0 「Go コード品質」:
+#   - ローカルと CI が同一の設定で動くこと (MUST)
+#   - 有効な linter とそのバージョンを設定ファイルで固定すること (MUST)
+#   - 個別の指摘を回避するために linter を無効化しないこと (MUST NOT)
+#   - nolint には理由を併記すること (MUST)
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck # 返り値のエラーを捨てていないか。原則 IV「エラーを握り潰さない」の機械的検査
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose # HTTP レスポンスボディの閉じ忘れ
+    - contextcheck
+    - errorlint # errors.Is/As による判定漏れ。エラー分類が要となるため
+    - gosec
+    - noctx # context なしの HTTP 要求
+    - nilerr
+    - revive
+    - copyloopvar
+    - misspell
+    - unconvert
+    - unparam
+    - wastedassign
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+    revive:
+      rules:
+        - name: exported
+          disabled: true # 公開 API を持たない単一サービスのため
+
+  exclusions:
+    rules:
+      # テストでは前提を固定するための型アサーションが多く、また入力は自前で用意する。
+      - path: _test\.go$
+        linters:
+          - gosec
+          - errcheck
+
+issues:
+  # 既定の上限は指摘を隠す。すべて出す。
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt

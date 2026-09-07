@@ -29,15 +29,15 @@ plan.md の構造に従う。`cmd/webhook/`、`internal/`、`test/`、`build/` �
 
 **Purpose**: プロジェクトの初期化と、constitution が要求する品質ゲートの土台作り
 
-- [ ] T001 `go.mod` をリポジトリルートに作成する。モジュールパスは `github.com/iij/external-dns-iij-dpf-webhook`、`go` ディレクティブは `1.27`
-- [ ] T002 [P] `internal/`、`cmd/webhook/`、`test/contract/`、`test/integration/`、`build/` のディレクトリ構造を plan.md の Source Code 節に従って作成する
-- [ ] T003 [P] `.golangci.yml` を作成し、有効にする linter とそのバージョンを固定する。ローカルと CI が同一設定で動くこと (constitution: Go コード品質)
-- [ ] T004 [P] `Makefile` に `fmt-check` / `build` / `lint` / `vuln` / `test` ターゲットを定義する。`fmt-check` は `gofmt -l ./...` の出力が空でないとき失敗すること
-- [ ] T005 [P] `build/Containerfile` を作成する。alpine ビルダー段で `CGO_ENABLED=1 -buildmode=pie -tags 'netgo osusergo' -ldflags '-s -w -linkmode external -extldflags "-static-pie"'`、最終段は `scratch` に CA 証明書とバイナリのみを置き `USER 65532:65532` とする (research R1/R2)
-- [ ] T006 [P] `.github/workflows/ci.yml` に品質ゲートを定義する。`gofmt -l` / `go build` / `golangci-lint run` / `govulncheck ./...` / `go test ./...` / イメージビルド / 脆弱性スキャンを実行し、Go・golangci-lint・govulncheck のバージョンを固定する
-- [ ] T007 [P] `.github/workflows/ci.yml` に配布バイナリの ASLR 検証ステップを追加する。ELF Type が `DYN` であり `PT_INTERP` を持たないことを確認して失敗させる (constitution v1.6.0)
-- [ ] T008 [P] `.github/workflows/scheduled.yml` を作成し、`govulncheck` とイメージ脆弱性スキャンを定期実行する (constitution: コード変更がなくても新規脆弱性は公開されるため)
-- [ ] T009 [P] `docs/development.md` に、`dpf-go` が公開されるまでの `GOPRIVATE=github.com/iij/dpf-go` 設定と、CI での認証付きモジュール取得手順を記載する (research R10)
+- [X] T001 `go.mod` をリポジトリルートに作成する。モジュールパスは `github.com/iij/external-dns-iij-dpf-webhook`、`go` ディレクティブは `1.27`
+- [X] T002 [P] `internal/`、`cmd/webhook/`、`test/contract/`、`test/integration/`、`build/` のディレクトリ構造を plan.md の Source Code 節に従って作成する
+- [X] T003 [P] `.golangci.yml` を作成し、有効にする linter とそのバージョンを固定する。ローカルと CI が同一設定で動くこと (constitution: Go コード品質)
+- [X] T004 [P] `Makefile` に `fmt-check` / `build` / `lint` / `vuln` / `test` ターゲットを定義する。`fmt-check` は `gofmt -l ./...` の出力が空でないとき失敗すること
+- [X] T005 [P] `build/Containerfile` を作成する。alpine ビルダー段で `CGO_ENABLED=1 -buildmode=pie -tags 'netgo osusergo' -ldflags '-s -w -linkmode external -extldflags "-static-pie"'`、最終段は `scratch` に CA 証明書とバイナリのみを置き `USER 65532:65532` とする (research R1/R2)
+- [ ] T006 **(保留: CI は後回しとする方針)** [P] `.github/workflows/ci.yml` に品質ゲートを定義する。`gofmt -l` / `go build` / `golangci-lint run` / `govulncheck ./...` / `go test ./...` / イメージビルド / 脆弱性スキャンを実行し、Go・golangci-lint・govulncheck のバージョンを固定する
+- [ ] T007 **(保留: CI は後回しとする方針)** [P] `.github/workflows/ci.yml` に配布バイナリの ASLR 検証ステップを追加する。ELF Type が `DYN` であり `PT_INTERP` を持たないことを確認して失敗させる (constitution v1.6.0)
+- [ ] T008 **(保留: CI は後回しとする方針)** [P] `.github/workflows/scheduled.yml` を作成し、`govulncheck` とイメージ脆弱性スキャンを定期実行する (constitution: コード変更がなくても新規脆弱性は公開されるため)
+- [X] T009 [P] `docs/development.md` に、`dpf-go` が公開されるまでの `GOPRIVATE=github.com/iij/dpf-go` 設定と、CI での認証付きモジュール取得手順を記載する (research R10)
 
 **Checkpoint**: 空のプロジェクトで全 CI ゲートが通る状態
 
@@ -51,24 +51,24 @@ plan.md の構造に従う。`cmd/webhook/`、`internal/`、`test/`、`build/` �
 
 ### 正規化名 (すべての層が依存)
 
-- [ ] T010 [P] `internal/dnsname/name_test.go` に、正規化名の型のテストを書く。生成時に `dns.CanonicalName` が適用されること、`dns.IsDomainName` を満たさない名前が実体化できないこと、大文字混じり・末尾ドット有無の入力が同一の値になること
-- [ ] T011 `internal/dnsname/name.go` に正規化名の型を実装する。生の文字列から直接構築できない設計とし、生成経路を境界に限定する (constitution v1.4.0)
-- [ ] T012 [P] `internal/dnsname/scope_test.go` に包含判定のテストを書く。`example.jp` を範囲としたとき `evil-example.jp` が含まれないこと、`a.b.example.jp` が含まれること
-- [ ] T013 `internal/dnsname/scope.go` に包含判定と最長一致の選択を実装する。`dns.IsSubDomain` / `dns.SplitDomainName` / `dns.CountLabel` のみを用い、`strings` による判定を書かない
+- [X] T010 [P] `internal/dnsname/name_test.go` に、正規化名の型のテストを書く。生成時に `dns.CanonicalName` が適用されること、`dns.IsDomainName` を満たさない名前が実体化できないこと、大文字混じり・末尾ドット有無の入力が同一の値になること
+- [X] T011 `internal/dnsname/name.go` に正規化名の型を実装する。生の文字列から直接構築できない設計とし、生成経路を境界に限定する (constitution v1.4.0)
+- [X] T012 [P] `internal/dnsname/scope_test.go` に包含判定のテストを書く。`example.jp` を範囲としたとき `evil-example.jp` が含まれないこと、`a.b.example.jp` が含まれること
+- [X] T013 `internal/dnsname/scope.go` に包含判定と最長一致の選択を実装する。`dns.IsSubDomain` / `dns.SplitDomainName` / `dns.CountLabel` のみを用い、`strings` による判定を書かない
 
 ### 設定 (default-deny)
 
-- [ ] T014 [P] `internal/config/config_test.go` に設定読み込みのテストを書く。必須設定の欠落で起動失敗すること、解釈不能な値で既定値にフォールバックせず失敗すること、domain filter 未設定が「範囲なし」になること (FR-002/FR-017/FR-018)
-- [ ] T015 `internal/config/config.go` に設定の読み込みと検証を実装する。トークン取得経路はファイルとシークレット管理サービスの 2 つに限り、環境変数・引数からのトークン受け取りを提供しない (constitution v1.8.0)
+- [X] T014 [P] `internal/config/config_test.go` に設定読み込みのテストを書く。必須設定の欠落で起動失敗すること、解釈不能な値で既定値にフォールバックせず失敗すること、domain filter 未設定が「範囲なし」になること (FR-002/FR-017/FR-018)
+- [X] T015 `internal/config/config.go` に設定の読み込みと検証を実装する。トークン取得経路はファイルとシークレット管理サービスの 2 つに限り、環境変数・引数からのトークン受け取りを提供しない (constitution v1.8.0)
 
 ### テレメトリ基盤 (ログのみ。計測値とトレースは US4)
 
-- [ ] T016 [P] `internal/telemetry/log_test.go` に、構造化ログが標準出力へ出ること、OTLP 送出先の設定有無に関わらず標準出力が止まらないことのテストを書く (原則 V)
-- [ ] T017 `internal/telemetry/log.go` に構造化ログの初期化を実装する。ログレベルを設定で変更可能にする
+- [X] T016 [P] `internal/telemetry/log_test.go` に、構造化ログが標準出力へ出ること、OTLP 送出先の設定有無に関わらず標準出力が止まらないことのテストを書く (原則 V)
+- [X] T017 `internal/telemetry/log.go` に構造化ログの初期化を実装する。ログレベルを設定で変更可能にする
 
 ### DPF クライアント層の土台
 
-- [ ] T018 [P] `internal/provider/ports.go` に、provider が dpf 層に期待するインタフェースを宣言する。contracts/dpf-client.md の「提供する操作」に対応させ、`dpf-go` の生成型を一切含めない (原則 II)
+- [X] T018 [P] `internal/provider/ports.go` に、provider が dpf 層に期待するインタフェースを宣言する。contracts/dpf-client.md の「提供する操作」に対応させ、`dpf-go` の生成型を一切含めない (原則 II)
 - [ ] T019 [P] `internal/dpf/errors_test.go` に、エラー分類のテストを書く。応答不能・レート制限・ロック取得不能が一時的、形式違反・権限不足・トークン取得失敗が恒久的に分類されること (contracts/dpf-client.md)
 - [ ] T020 `internal/dpf/errors.go` に、`dpf-go` 由来のエラーを本プロジェクトのエラー型へ変換する処理を実装する。`*utils.TokenError` を恒久的に分類する
 - [ ] T021 [P] `internal/dpf/client_test.go` に、トークン供給のテストを書く。ファイル経路とシークレット管理サービス経路が設定でき、環境変数経路が提供されないこと、トークン取得失敗時のエラーに値やファイル内容が含まれないこと (FR-036/FR-039)
@@ -130,8 +130,8 @@ DNS を一切変更しない。
 - [ ] T042 [P] [US2] `test/contract/records_post_test.go` に `POST /records` の契約テストを書く。成功時が `204 No Content` であること、空の変更セットが成功すること、末尾ドット有無の異なる名前が同一レコードとして扱われること (contracts/webhook-api.md)
 - [ ] T043 [P] [US2] `internal/provider/validate_test.go` に種別ごとの検証のテストを書く。apex NS の削除要求、`CNAME` の複数値・他種別との共存、`A`/`AAAA` の名前に含まれる `_`、`MX`/`SRV` の数値範囲外がいずれも恒久的な失敗になること (FR-029〜FR-031/FR-033)
 - [ ] T044 [P] [US2] `internal/provider/validate_test.go` に `TXT` の検証テストを書く。character-string 1 個が 256 オクテットなら失敗、複数 character-string の合計が 255 を超えるのは成功、往復で分割位置が変わらないこと (FR-032/FR-032a)
-- [ ] T045 [P] [US2] `internal/provider/merge_test.go` にマージ規則のテストを書く。管理対象は変更後、変更セット外の管理対象は現在値、管理対象外は逐語コピー、SOA と apex NS は投入対象外になること (data-model.md 5)
-- [ ] T046 [P] [US2] `internal/provider/merge_test.go` に投入前ガードのテストを書く。変更セット外のレコードが失われる内容になったとき、適用が中止され一時的な失敗になること (data-model.md 5)
+- [ ] T045 [P] [US2] `internal/dpf/merge_test.go` にマージ規則のテストを書く。管理対象は変更後、変更セット外の管理対象は現在値、管理対象外は逐語コピー、SOA と apex NS は投入対象外になること (data-model.md 5)
+- [ ] T046 [P] [US2] `internal/dpf/merge_test.go` に投入前ガードのテストを書く。変更セット外のレコードが失われる内容になったとき、適用が中止され一時的な失敗になること (data-model.md 5)
 - [ ] T047 [P] [US2] `test/integration/apply_idempotent_test.go` に冪等性のテストを書く。同一の変更セットを 10 回適用しても最終状態が変わらないこと (FR-010/SC-002)
 - [ ] T048 [P] [US2] `test/integration/apply_scope_test.go` に、管理対象外のレコードが一切変更されないことのテストを書く。管理対象外の種別と範囲外の名前の双方について、TTL・値・コメント・ラベルが不変であること (FR-009/FR-027/SC-004)
 - [ ] T049 [P] [US2] `test/integration/apply_failure_test.go` に、適用が途中で失敗したとき成功を返さないこと、反映完了前に成功を返さないことのテストを書く (FR-011/FR-012)
@@ -141,8 +141,8 @@ DNS を一切変更しない。
 
 - [ ] T051 [P] [US2] `internal/provider/changeset.go` に変更セットの型を実装する。作成・更新・削除を保持する (data-model.md 5)
 - [ ] T052 [P] [US2] `internal/provider/validate.go` に種別ごとの検証規則を実装する。DPF へ送る前に判定し、違反を恒久的な失敗とする (T043・T044 に対応)
-- [ ] T053 [US2] `internal/provider/merge.go` にマージ処理を実装する。管理対象外レコードはドメインモデルを通さず逐語コピーする (data-model.md 5、T045 に対応)
-- [ ] T054 [US2] `internal/provider/merge.go` に投入前ガードを実装する。失われるレコードが変更セットの削除対象と一致しなければ中止する (T046 に対応)
+- [ ] T053 [US2] `internal/dpf/merge.go` にマージ処理を実装する。管理対象外レコードはドメインモデルを通さず逐語コピーする (data-model.md 5、T045 に対応)
+- [ ] T054 [US2] `internal/dpf/merge.go` に投入前ガードを実装する。失われるレコードが変更セットの削除対象と一致しなければ中止する (T046 に対応)
 - [ ] T055 [P] [US2] `internal/dpf/lock.go` にゾーンロックを実装する。`utils.NewMutex` / `LockWait` / `Unlock` を用い、有効期限を設定し、成功・失敗のいずれの経路でも解放する (research R4)
 - [ ] T056 [US2] `internal/dpf/apply.go` に変更の適用を実装する。ロック取得 → 反映済みレコードの全件取得 → マージ → ガード → 一括更新とゾーン反映 → 完了待ち → ロック解放。編集中を含む一覧を土台にしない (contracts/dpf-client.md)
 - [ ] T057 [US2] `internal/dpf/apply.go` の完了待ちに `JobsAPI.SyncWait` を用いる。反映完了前に成功を返さない (FR-011)
