@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,8 +15,10 @@ import (
 
 	"github.com/iij/external-dns-iij-dpf-webhook/internal/config"
 	"github.com/iij/external-dns-iij-dpf-webhook/internal/dpf"
+	"github.com/iij/external-dns-iij-dpf-webhook/internal/provider"
 	"github.com/iij/external-dns-iij-dpf-webhook/internal/server"
 	"github.com/iij/external-dns-iij-dpf-webhook/internal/telemetry"
+	"github.com/iij/external-dns-iij-dpf-webhook/internal/webhook"
 )
 
 // shutdownTimeout は停止処理に許す時間。
@@ -62,17 +63,15 @@ func run(args []string) error {
 
 	// トークンの供給元をここで検証する。取得できない状態で待ち受けを始めると、
 	// probe は通るのに要求がすべて失敗する状態になる (FR-017)。
-	if _, err := dpf.NewClient(ctx, cfg.DPF); err != nil {
+	backend, err := dpf.NewClient(ctx, cfg.DPF)
+	if err != nil {
 		return err
 	}
 
-	// webhook provider のハンドラは US1 以降で組み立てる。
-	// 現時点では未実装であることを明示する。
-	providerHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "not implemented", http.StatusNotImplemented)
-	})
+	p := provider.New(cfg.Scope, backend, logger)
 
-	srv := server.New(cfg.Server, providerHandler, nil)
+	// 計測値の提供は US4 で追加する。それまで /metrics は公開しない。
+	srv := server.New(cfg.Server, webhook.NewHandler(p), nil)
 	if err := srv.Start(ctx); err != nil {
 		return err
 	}

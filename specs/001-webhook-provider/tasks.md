@@ -99,20 +99,20 @@ DNS を一切変更しない。
 
 ### Tests for User Story 1 ⚠️ 先に書いて失敗を確認する
 
-- [ ] T031 [P] [US1] `test/contract/negotiate_test.go` に `GET /` の契約テストを書く。管理対象ドメインが返ること、未設定時に空の範囲が返り「全ドメイン」にならないこと (FR-001/FR-002)
-- [ ] T032 [P] [US1] `test/contract/records_get_test.go` に `GET /records` の契約テストを書く。成功時 `200`、名前が正規化名 (小文字・末尾ドット) で返ること (research R7)
-- [ ] T033 [P] [US1] `test/integration/list_records_test.go` に統合テストを書く。管理対象外ゾーンのレコードが含まれないこと、大文字混じりで登録された名前が同一名として扱われること、管理対象外種別が除外されること (FR-004/FR-006/FR-027)
-- [ ] T034 [P] [US1] `test/integration/list_failure_test.go` に、DPF が応答しないとき一時的な失敗として `5xx` が返ることのテストを書く (FR-016)
+- [X] T031 [P] [US1] `test/contract/negotiate_test.go` に `GET /` の契約テストを書く。管理対象ドメインが返ること、未設定時に空の範囲が返り「全ドメイン」にならないこと (FR-001/FR-002)
+- [X] T032 [P] [US1] `test/contract/records_get_test.go` に `GET /records` の契約テストを書く。成功時 `200`、名前が正規化名 (小文字・末尾ドット) で返ること (research R7)
+- [X] T033 [P] [US1] `test/integration/list_records_test.go` に統合テストを書く。管理対象外ゾーンのレコードが含まれないこと、大文字混じりで登録された名前が同一名として扱われること、管理対象外種別が除外されること (FR-004/FR-006/FR-027)
+- [X] T034 [P] [US1] `test/integration/list_failure_test.go` に、DPF が応答しないとき一時的な失敗として `5xx` が返ることのテストを書く (FR-016)
 
 ### Implementation for User Story 1
 
-- [ ] T035 [P] [US1] `internal/dpf/zone.go` にゾーン解決を実装する。ゾーン名を正規化して返し、最長一致で書き込み先を選べる形にする (data-model.md 3)
-- [ ] T036 [US1] `internal/dpf/records.go` に反映済みレコードの全件取得を実装する。全ページを取得し、許可リスト外の種別を除外し、名前を正規化して返す (contracts/dpf-client.md)
-- [ ] T037 [P] [US1] `internal/provider/scope.go` に管理対象範囲の判定を実装する。集合が空なら常に偽とし、「空集合＝全許可」に読み替えない (FR-002/FR-003)
-- [ ] T038 [US1] `internal/provider/list.go` にレコード一覧の取得を実装する (T035〜T037 に依存)
-- [ ] T039 [US1] `internal/webhook/negotiate.go` に `GET /` のハンドラを実装する
-- [ ] T040 [US1] `internal/webhook/records.go` に `GET /records` のハンドラを実装する
-- [ ] T041 [US1] `internal/provider/list.go` に、管理対象が空である旨の起動時ログを追加する (FR-002 の可視化)
+- [X] T035 [P] [US1] `internal/dpf/zone.go` にゾーン解決を実装する。ゾーン名を正規化して返し、最長一致で書き込み先を選べる形にする (data-model.md 3)
+- [X] T036 [US1] `internal/dpf/records.go` に反映済みレコードの全件取得を実装する。全ページを取得し、許可リスト外の種別を除外し、名前を正規化して返す (contracts/dpf-client.md)
+- [X] T037 [P] [US1] `internal/provider/scope.go` に管理対象範囲の判定を実装する。集合が空なら常に偽とし、「空集合＝全許可」に読み替えない (FR-002/FR-003)
+- [X] T038 [US1] `internal/provider/list.go` にレコード一覧の取得を実装する (T035〜T037 に依存)
+- [X] T039 [US1] `internal/webhook/negotiate.go` に `GET /` のハンドラを実装する
+- [X] T040 [US1] `internal/webhook/records.go` に `GET /records` のハンドラを実装する
+- [X] T041 [US1] `internal/provider/list.go` に、管理対象が空である旨の起動時ログを追加する (FR-002 の可視化)
 
 **Checkpoint**: US1 が単独で動作し、本番ゾーンに対しても安全に検証できる
 
