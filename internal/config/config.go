@@ -59,6 +59,13 @@ type DPF struct {
 
 	// SecretID はシークレット管理サービス上の識別子。
 	SecretID string
+
+	// SecretEndpoint はシークレット管理サービスの接続先。
+	//
+	// azure では Key Vault の URL として必須。環境から導けないため。
+	// vault では接続先の上書き、gcp ではプロジェクトの指定に使う。
+	// aws では不要 (SDK の既定の解決順に従う)。
+	SecretEndpoint string
 }
 
 // UsesSecretManager はトークンをシークレット管理サービスから取得するかを報告する。
@@ -119,17 +126,19 @@ func Load(args []string) (Config, error) {
 	fs.SetOutput(io.Discard)
 
 	var (
-		domains       domainFilterFlag
-		dpfEndpoint   = fs.String("dpf-endpoint", "", "DPF API のエンドポイント (未指定なら既定値)")
-		tokenFile     = fs.String("dpf-token-file", "", "DPF アクセストークンを収めたファイルのパス")
-		secretManager = fs.String("dpf-token-secret-manager", "", "トークンを取得するシークレット管理サービス (vault|aws|azure|gcp)")
-		secretID      = fs.String("dpf-token-secret-id", "", "シークレット管理サービス上の識別子")
-		providerAddr  = fs.String("provider-addr", "127.0.0.1:8888", "webhook provider エンドポイントの待ち受けアドレス")
-		exposedAddr   = fs.String("exposed-addr", ":8080", "healthz と metrics の待ち受けアドレス")
-		otlpEndpoint  = fs.String("otlp-endpoint", "", "OTLP の送出先 (未指定なら送出しない)")
-		otlpProtocol  = fs.String("otlp-protocol", "grpc", "OTLP のプロトコル (grpc|http)")
-		otlpInsecure  = fs.Bool("otlp-insecure", false, "OTLP 送出先への TLS 検証を無効にする")
-		logLevel      = fs.String("log-level", "info", "ログレベル (debug|info|warn|error)")
+		domains        domainFilterFlag
+		dpfEndpoint    = fs.String("dpf-endpoint", "", "DPF API のエンドポイント (未指定なら既定値)")
+		tokenFile      = fs.String("dpf-token-file", "", "DPF アクセストークンを収めたファイルのパス")
+		secretManager  = fs.String("dpf-token-secret-manager", "", "トークンを取得するシークレット管理サービス (vault|aws|azure|gcp)")
+		secretID       = fs.String("dpf-token-secret-id", "", "シークレット管理サービス上の識別子")
+		secretEndpoint = fs.String("dpf-token-secret-endpoint", "",
+			"シークレット管理サービスの接続先 (azure では Key Vault の URL として必須)")
+		providerAddr = fs.String("provider-addr", "127.0.0.1:8888", "webhook provider エンドポイントの待ち受けアドレス")
+		exposedAddr  = fs.String("exposed-addr", ":8080", "healthz と metrics の待ち受けアドレス")
+		otlpEndpoint = fs.String("otlp-endpoint", "", "OTLP の送出先 (未指定なら送出しない)")
+		otlpProtocol = fs.String("otlp-protocol", "grpc", "OTLP のプロトコル (grpc|http)")
+		otlpInsecure = fs.Bool("otlp-insecure", false, "OTLP 送出先への TLS 検証を無効にする")
+		logLevel     = fs.String("log-level", "info", "ログレベル (debug|info|warn|error)")
 	)
 	fs.Var(&domains, "domain-filter", "管理対象ドメイン (複数指定可、未指定なら管理対象なし)")
 
@@ -148,10 +157,11 @@ func Load(args []string) (Config, error) {
 	}
 
 	dpf := DPF{
-		Endpoint:      *dpfEndpoint,
-		TokenFile:     *tokenFile,
-		SecretManager: *secretManager,
-		SecretID:      *secretID,
+		Endpoint:       *dpfEndpoint,
+		TokenFile:      *tokenFile,
+		SecretManager:  *secretManager,
+		SecretID:       *secretID,
+		SecretEndpoint: *secretEndpoint,
 	}
 	if err := validateTokenSource(dpf); err != nil {
 		return Config{}, err
@@ -182,7 +192,7 @@ func Load(args []string) (Config, error) {
 // 0 個なら起動できない (FR-017)。2 個ならどちらが使われるか曖昧になるため拒否する。
 func validateTokenSource(d DPF) error {
 	hasFile := d.TokenFile != ""
-	hasSM := d.SecretManager != "" || d.SecretID != ""
+	hasSM := d.SecretManager != "" || d.SecretID != "" || d.SecretEndpoint != ""
 
 	switch {
 	case !hasFile && !hasSM:

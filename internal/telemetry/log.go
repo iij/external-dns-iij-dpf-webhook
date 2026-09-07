@@ -87,7 +87,10 @@ func (h *teeHandler) Handle(ctx context.Context, r slog.Record) error {
 		primaryErr = h.primary.Handle(ctx, r.Clone())
 	}
 	if h.secondary.Enabled(ctx, r.Level) {
-		_ = h.secondary.Handle(ctx, r.Clone())
+		// テレメトリの送出失敗によって本来の処理を止めない (FR-024)。
+		// 失敗を返すと呼び出し元がそれを障害として扱いうるため、意図的に捨てる。
+		//nolint:errcheck,gosec // FR-024: 送出失敗を本来の処理へ伝播させない
+		h.secondary.Handle(ctx, r.Clone())
 	}
 	return primaryErr
 }

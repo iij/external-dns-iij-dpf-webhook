@@ -33,18 +33,6 @@ func (e *apiError) Error() string {
 
 func (e *apiError) Unwrap() error { return e.err }
 
-// wrapAPIError は DPF API の応答とエラーを apiError に包む。
-// resp が nil の場合 (接続自体が成立しなかった場合) は err をそのまま返す。
-func wrapAPIError(resp *http.Response, err error) error {
-	if err == nil {
-		return nil
-	}
-	if resp == nil {
-		return err
-	}
-	return &apiError{status: resp.StatusCode, err: err}
-}
-
 // Classify は err を一時的な障害と恒久的な障害のいずれかに分類する。
 //
 // 分類は webhook 契約の状態コードを決める。一時的なら 5xx を返して ExternalDNS に
