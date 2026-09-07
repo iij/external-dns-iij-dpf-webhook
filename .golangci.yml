@@ -51,6 +51,8 @@ linters:
         linters:
           - gosec
           - errcheck
+          # テストの補助的な接続確認は文脈を伴わない。本番コードでは noctx を有効に保つ。
+          - noctx
 
 issues:
   # 既定の上限は指摘を隠す。すべて出す。

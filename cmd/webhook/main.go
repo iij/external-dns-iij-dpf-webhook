@@ -1,0 +1,106 @@
+// Command webhook は IIJ DNS プラットフォームサービス (DPF) を DNS プロバイダとして
+// 提供する ExternalDNS webhook provider である。
+//
+// ExternalDNS と同一 Pod 内のサイドカーとして動作することを前提とする。
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/iij/external-dns-iij-dpf-webhook/internal/config"
+	"github.com/iij/external-dns-iij-dpf-webhook/internal/dpf"
+	"github.com/iij/external-dns-iij-dpf-webhook/internal/server"
+	"github.com/iij/external-dns-iij-dpf-webhook/internal/telemetry"
+)
+
+// shutdownTimeout は停止処理に許す時間。
+const shutdownTimeout = 20 * time.Second
+
+func main() {
+	if err := run(os.Args[1:]); err != nil {
+		// ロガーがまだ組み立てられていない可能性があるため、標準エラーへ直接書く。
+		fmt.Fprintf(os.Stderr, "起動できません: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// run は設定の読み込みから終了処理までを行う。
+//
+// 設定に不備があれば起動しない。既定値へフォールバックして動き続けることは、
+// 設定漏れを見えなくするだけであり、原則 VI に反する (FR-017、FR-018)。
+func run(args []string) error {
+	cfg, err := config.Load(args)
+	if err != nil {
+		return err
+	}
+
+	logger := telemetry.NewLogger(os.Stdout, cfg.LogLevel)
+
+	// 管理対象が空であることは異常ではないが、設定漏れの可能性が高い。
+	// 黙って何もしない状態を作らないよう、起動時に知らせる (FR-002)。
+	if cfg.Scope.IsEmpty() {
+		logger.Warn("管理対象ドメインが設定されていません。レコードは 1 件も管理されません",
+			"hint", "--domain-filter を指定してください")
+	} else {
+		domains := make([]string, 0, len(cfg.Scope.Domains()))
+		for _, d := range cfg.Scope.Domains() {
+			domains = append(domains, d.String())
+		}
+		logger.Info("管理対象ドメイン", "domains", domains)
+	}
+
+	// 終了シグナルで文脈を打ち切る。
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// トークンの供給元をここで検証する。取得できない状態で待ち受けを始めると、
+	// probe は通るのに要求がすべて失敗する状態になる (FR-017)。
+	if _, err := dpf.NewClient(ctx, cfg.DPF); err != nil {
+		return err
+	}
+
+	// webhook provider のハンドラは US1 以降で組み立てる。
+	// 現時点では未実装であることを明示する。
+	providerHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+	})
+
+	srv := server.New(cfg.Server, providerHandler, nil)
+	if err := srv.Start(ctx); err != nil {
+		return err
+	}
+	logger.Info("待ち受けを開始しました",
+		"provider", srv.ProviderAddr(),
+		"exposed", srv.ExposedAddr())
+
+	// 終了シグナル、またはリスナーの異常終了のいずれか早い方で止まる。
+	var runErr error
+	select {
+	case <-ctx.Done():
+		logger.Info("終了シグナルを受け取りました")
+	case err := <-srv.Err():
+		if err != nil {
+			runErr = fmt.Errorf("待ち受けが異常終了しました: %w", err)
+			logger.Error("待ち受けが異常終了しました", "error", err)
+		}
+	}
+
+	// 停止処理には打ち切られていない文脈を使う。ctx はこの時点で完了しており、
+	// そのまま渡すと処理中の要求を待たずに切ることになる。
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		return errors.Join(runErr, err)
+	}
+	logger.Info("停止しました")
+
+	return runErr
+}

@@ -69,21 +69,21 @@ plan.md の構造に従う。`cmd/webhook/`、`internal/`、`test/`、`build/` �
 ### DPF クライアント層の土台
 
 - [X] T018 [P] `internal/provider/ports.go` に、provider が dpf 層に期待するインタフェースを宣言する。contracts/dpf-client.md の「提供する操作」に対応させ、`dpf-go` の生成型を一切含めない (原則 II)
-- [ ] T019 [P] `internal/dpf/errors_test.go` に、エラー分類のテストを書く。応答不能・レート制限・ロック取得不能が一時的、形式違反・権限不足・トークン取得失敗が恒久的に分類されること (contracts/dpf-client.md)
-- [ ] T020 `internal/dpf/errors.go` に、`dpf-go` 由来のエラーを本プロジェクトのエラー型へ変換する処理を実装する。`*utils.TokenError` を恒久的に分類する
-- [ ] T021 [P] `internal/dpf/client_test.go` に、トークン供給のテストを書く。ファイル経路とシークレット管理サービス経路が設定でき、環境変数経路が提供されないこと、トークン取得失敗時のエラーに値やファイル内容が含まれないこと (FR-036/FR-039)
-- [ ] T022 `internal/dpf/client.go` に、`utils.WithTokenFile` / `utils.WithTokenProvider` を用いたクライアント構築を実装する。`utils.WithToken` と環境変数既定は使わない (research R5)
-- [ ] T023 [P] `internal/dpf/rrtype_test.go` に、種別対応付けのテストを書く。9 種別が対応すること、`DNAME` が対応しないこと、DPF 固有の 7 種別が管理対象外として識別されること (FR-026/FR-027/FR-028)
-- [ ] T024 `internal/dpf/rrtype.go` に、許可リスト方式の種別対応付けを実装する
+- [X] T019 [P] `internal/dpf/errors_test.go` に、エラー分類のテストを書く。応答不能・レート制限・ロック取得不能が一時的、形式違反・権限不足・トークン取得失敗が恒久的に分類されること (contracts/dpf-client.md)
+- [X] T020 `internal/dpf/errors.go` に、`dpf-go` 由来のエラーを本プロジェクトのエラー型へ変換する処理を実装する。`*utils.TokenError` を恒久的に分類する
+- [X] T021 [P] `internal/dpf/client_test.go` に、トークン供給のテストを書く。ファイル経路とシークレット管理サービス経路が設定でき、環境変数経路が提供されないこと、トークン取得失敗時のエラーに値やファイル内容が含まれないこと (FR-036/FR-039)
+- [X] T022 `internal/dpf/client.go` に、`utils.WithTokenFile` / `utils.WithTokenProvider` を用いたクライアント構築を実装する。`utils.WithToken` と環境変数既定は使わない (research R5)
+- [X] T023 [P] `internal/dpf/rrtype_test.go` に、種別対応付けのテストを書く。9 種別が対応すること、`DNAME` が対応しないこと、DPF 固有の 7 種別が管理対象外として識別されること (FR-026/FR-027/FR-028)
+- [X] T024 `internal/dpf/rrtype.go` に、許可リスト方式の種別対応付けを実装する
 
 ### HTTP 基盤
 
-- [ ] T025 [P] `test/contract/negotiation_test.go` に、メディアタイプ `application/external.dns.webhook+json;version=1` のネゴシエーションと、`4xx`/`5xx` の使い分けの契約テストを書く (contracts/webhook-api.md)
-- [ ] T026 `internal/webhook/negotiation.go` にメディアタイプの解釈と応答ヘッダ設定を実装する
-- [ ] T027 `internal/webhook/errors.go` に、エラー分類から HTTP 状態コードへの写像を実装する。一時的な障害を `4xx` にしない
-- [ ] T028 [P] `internal/server/server_test.go` に、provider リスナーがループバックのみに待ち受けること、exposed リスナーが `/healthz` を提供することのテストを書く (原則 VI、FR-019)
-- [ ] T029 `internal/server/server.go` に 2 つのリスナー (provider 既定 `8888` / exposed 既定 `8080`) の起動・停止と `/healthz` を実装する
-- [ ] T030 `cmd/webhook/main.go` に起動処理を実装する。設定検証 → 各層の組み立て → リスナー起動 → 終了処理。必須設定が欠ければ異常終了する
+- [X] T025 [P] `test/contract/negotiation_test.go` に、メディアタイプ `application/external.dns.webhook+json;version=1` のネゴシエーションと、`4xx`/`5xx` の使い分けの契約テストを書く (contracts/webhook-api.md)
+- [X] T026 `internal/webhook/negotiation.go` にメディアタイプの解釈と応答ヘッダ設定を実装する
+- [X] T027 `internal/webhook/errors.go` に、エラー分類から HTTP 状態コードへの写像を実装する。一時的な障害を `4xx` にしない
+- [X] T028 [P] `internal/server/server_test.go` に、provider リスナーがループバックのみに待ち受けること、exposed リスナーが `/healthz` を提供することのテストを書く (原則 VI、FR-019)
+- [X] T029 `internal/server/server.go` に 2 つのリスナー (provider 既定 `8888` / exposed 既定 `8080`) の起動・停止と `/healthz` を実装する
+- [X] T030 `cmd/webhook/main.go` に起動処理を実装する。設定検証 → 各層の組み立て → リスナー起動 → 終了処理。必須設定が欠ければ異常終了する
 
 **Checkpoint**: 基盤が揃い、ユーザーストーリーの実装を開始できる
 
