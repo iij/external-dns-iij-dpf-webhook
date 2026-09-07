@@ -2,6 +2,7 @@
 #
 # constitution v1.5.0: ベースイメージは scratch (MUST)
 # constitution v1.6.0: ASLR が有効な状態でビルドすること (MUST)
+# constitution v1.9.0: ライセンスは Apache-2.0 (MUST)
 #
 # research R1 で実測した結果:
 #   CGO_ENABLED=0            → EXEC     : ASLR 無効
@@ -46,18 +47,62 @@ RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
       -ldflags '-s -w -linkmode external -extldflags "-static-pie"' \
       -o /out/webhook ./cmd/webhook
 
+# 依存モジュールのライセンス本文を収集する。
+#
+# 本イメージは静的リンクされたバイナリを配布する。依存の大半が Apache-2.0 であり、
+# 同ライセンスは配布物への表示の伝播を求める。SBOM は構成の一覧を示すが
+# 本文そのものではないため、テキストを同梱する必要がある。
+#
+# 収集は最終段ではなくここで行う。scratch にはツールを置けない。
+RUN --mount=type=secret,id=gh_token \
+    if [ -s /run/secrets/gh_token ]; then \
+      git config --global \
+        url."https://$(cat /run/secrets/gh_token)@github.com/iij/".insteadOf \
+        "https://github.com/iij/"; \
+    fi; \
+    go install github.com/google/go-licenses/v2@latest; \
+    go-licenses save ./cmd/webhook --save_path=/out/licenses/third-party; \
+    git config --global --unset-all url."https://github.com/iij/".insteadOf 2>/dev/null || true
+
 FROM scratch
+
+# ビルド時に埋める来歴情報。Makefile が git から渡す。
+ARG VERSION=dev
+ARG REVISION=unknown
+ARG CREATED=unknown
+
+# OCI Image Spec の標準アノテーション。
+# licenses は本イメージ自身のライセンスを表す。依存のライセンスは
+# /licenses/third-party と SBOM の双方で示す。
+LABEL org.opencontainers.image.title="external-dns-iij-dpf-webhook" \
+      org.opencontainers.image.description="ExternalDNS webhook provider for IIJ DNS Platform Service (DPF)" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.vendor="Internet Initiative Japan Inc." \
+      org.opencontainers.image.source="https://github.com/iij/external-dns-iij-dpf-webhook" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}"
 
 # scratch には証明書ストアがない。これを欠くと DPF API への TLS 検証が常に失敗する。
 # 出所はビルダーの ca-certificates パッケージであり、更新はビルダーイメージの更新で行う。
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
+# ライセンス本文。/licenses/ は多くの配布形態が参照する慣例的な位置。
+#
+# scratch にはシェルがないため、コンテナ内から読むには ephemeral container か
+# イメージの展開が要る。読みにくさを承知で同梱するのは、配布物に表示を伴わせる
+# 義務が読みやすさとは独立に生じるためである。
+COPY LICENSE /licenses/LICENSE
+COPY NOTICE /licenses/NOTICE
+COPY --from=build /out/licenses/third-party /licenses/third-party
 
 COPY --from=build /out/webhook /webhook
 
 # scratch には /etc/passwd がないためユーザ名は解決できない。数値 UID で指定する。
 USER 65532:65532
 
-# provider エンドポイント (ループバックのみ) と exposed エンドポイント。
+# exposed エンドポイント (healthz と metrics)。
+# provider エンドポイントはループバックのみに待ち受けるため公開しない。
 EXPOSE 8080
 
 ENTRYPOINT ["/webhook"]

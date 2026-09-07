@@ -217,7 +217,9 @@ DNS を一切変更しない。
 - [ ] T083 ExternalDNS と本 provider をサイドカー構成で動かし、Ingress の作成から 5 分以内にレコードが反映されること、差分の振動が起きないことを確認する (SC-001/SC-007)
 - [X] T085 `LICENSE` (Apache-2.0) と `NOTICE` をリポジトリルートに置き、全 Go ファイルに SPDX ヘッダを付与する。`make license-check` で検証する (constitution v1.9.0)
 - [ ] T086 [P] 依存モジュールに許容するライセンスの範囲を確定し、constitution の TODO(DEPENDENCY_LICENSE_POLICY) を解消する。252 モジュールに依存しており、方針なしでは非互換なものの混入に気付けない
-- [ ] T087 [P] 配布物へのライセンス表記の同梱方式を確定し、constitution の TODO(DISTRIBUTION_NOTICE) を解消する。scratch イメージにはバイナリと CA 証明書しかなく、Apache-2.0 依存の NOTICE を置く場所がない
+- [X] T087 [P] 配布物へのライセンス表記の同梱方式を確定し、constitution の TODO(DISTRIBUTION_NOTICE) を解消する (v1.10.0)。`/licenses/` に本体と依存の本文を同梱し、OCI アノテーションを付与。`make verify-licenses` で検証する
+- [ ] T088 [P] リリース時に SBOM と provenance を referrers として紐づける手順を確立する。`make image-push` (docker buildx --attest) を用いる。レジストリが必要なため、実際の付与確認はリリース環境で行う (constitution v1.10.0)
+- [ ] T089 [P] `README.md` に、イメージの `/licenses/` の構成と、SBOM / provenance の参照方法 (`cosign tree` など) を記載する
 - [ ] T084 `golangci-lint` の指摘と `govulncheck` の報告を解消する。抑制する場合は `nolint` に理由を併記する (constitution: Go コード品質)
 
 ---

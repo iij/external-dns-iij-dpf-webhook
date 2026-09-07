@@ -1,5 +1,24 @@
 <!--
 Sync Impact Report
+- Version change: 1.9.0 → 1.10.0
+- Bump rationale: 配布物へのライセンス表記の同梱方式を確定し、
+  TODO(DISTRIBUTION_NOTICE) を解消した。あわせて OCI アノテーションと
+  SBOM / provenance の付与を規範として追加した。規範の追加のため MINOR。
+- Modified principles: なし
+- Modified sections:
+  - 技術・配布制約 > 配布: 配布形態をコンテナイメージに限定。/licenses/ への
+    ライセンス本文の同梱、OCI アノテーション、SBOM / provenance を追加。
+  - 技術・配布制約 > ライセンス: TODO(DISTRIBUTION_NOTICE) を解消。
+    依存ライセンスの実測結果を記録。
+  - 開発ワークフローと品質ゲート: ライセンス同梱とアノテーションの検証を追加。
+- Added sections: なし
+- Removed sections: なし
+- Deferred TODOs:
+  - TODO(DEPENDENCY_LICENSE_POLICY): 依存モジュールに許容するライセンスの範囲。
+    現状の実測は Apache-2.0 43 / BSD-3-Clause 21 / MIT 12 / MPL-2.0 10 /
+    BSD-2-Clause 1 で、GPL・AGPL はない。許容範囲の明文化は未了。
+
+Sync Impact Report (v1.9.0)
 - Version change: 1.8.0 → 1.9.0
 - Bump rationale: ライセンスに関する規範を新設した。本体を Apache-2.0 とし、
   全 Go ファイルへの SPDX ヘッダ付与を MUST とした。規範の追加のため MINOR。
@@ -318,7 +337,13 @@ ExternalDNS は本サービスを無人で繰り返し呼び出すため、冪�
 - 依存モジュールに許容するライセンスの範囲は
   TODO(DEPENDENCY_LICENSE_POLICY) で確定する。確定までの間、依存を追加する
   PR ではそのライセンスを確認すること (MUST)。
-- 配布物へのライセンス表記の同梱方式は TODO(DISTRIBUTION_NOTICE) で確定する。
+- 配布物へのライセンス表記は「配布」の規定に従い、コンテナイメージの `/licenses/` へ
+  同梱する (MUST)。
+
+**依存ライセンスの実測 (2026-09-07 時点)**: Apache-2.0 43 / BSD-3-Clause 21 /
+MIT 12 / MPL-2.0 10 / BSD-2-Clause 1。GPL・AGPL はない。MPL-2.0 の 10 件はすべて
+HashiCorp 系であり、Vault 連携を取り込んだ結果として入っている。MPL-2.0 は
+ソースの提供を求めるため、これらはライセンス本文に加えてソースが同梱される。
 
 **根拠**: ライセンスの不備は、機能の欠陥と違って後から静かに効いてくる。
 表示を欠いたまま配布したものは回収できず、利用者側の法務判断を狂わせる。
@@ -447,7 +472,22 @@ DNS の大文字小文字規則と一致せず、ドットでの分割はエス�
 
 **配布**
 
-- 一次成果物はコンテナイメージとする (MUST)。タグ付きリリースごとに OCI イメージを公開すること。
+- **配布形態はコンテナイメージのみとする (MUST)。** タグ付きリリースごとに OCI イメージを
+  公開すること。ビルド済みバイナリを単体で配布しないこと (MUST NOT)。
+- 配布するイメージに、本プロジェクトと依存モジュールのライセンス本文を `/licenses/` へ
+  同梱すること (MUST)。本体は `/licenses/LICENSE` と `/licenses/NOTICE`、依存は
+  `/licenses/third-party/` にモジュールパスの階層を保って置くこと (MUST)。
+  単一ファイルへ連結しないこと (MUST NOT)。どのライセンスがどの依存のものかを
+  追えなくなるため。
+- ソースの提供を求めるライセンス (MPL-2.0 など) の依存については、ライセンス本文だけでなく
+  その義務を満たす内容を同梱すること (MUST)。
+- イメージに OCI Image Spec の標準アノテーションを付けること (MUST)。
+  `org.opencontainers.image.licenses` を必ず含めること (MUST)。
+  あわせて `title` / `description` / `vendor` / `source` / `version` / `revision` /
+  `created` を付けること (MUST)。
+- 配布するイメージに **SBOM と provenance を referrers として紐づけること (MUST)。**
+  referrers はレジストリ上の関連付けであるため、push と同時に行う。
+- イメージへの署名を行うこと (SHOULD)。署名方式の確定は運用側の判断に委ねる。
 - Kubernetes へのデプロイ用 Helm チャートおよびマニフェストを本リポジトリ内で維持すること (MUST)。
   コードとデプロイ成果物のバージョン整合を、リリース時に確認すること (MUST)。
 - リリースは SemVer に従いタグ付けすること (MUST)。ExternalDNS webhook API の互換性を壊す
@@ -549,6 +589,8 @@ DNS の大文字小文字規則と一致せず、ドットでの分割はエス�
     バインドされること)
   - 配布バイナリの ASLR が有効であることの検証
   - コンテナイメージのビルド、および脆弱性スキャン
+  - イメージへのライセンス同梱の検証 (`/licenses/` に本体と依存の本文があること)
+  - OCI アノテーションの検証 (`org.opencontainers.image.licenses` が正しいこと)
   - Helm チャートの lint、および既定 values のレンダリング結果が
     Pod Security Standards の `restricted` を満たすことの検証
 - `govulncheck` とコンテナイメージの脆弱性スキャンは、PR 時に加えて定期的に実行すること
@@ -583,4 +625,4 @@ DNS の大文字小文字規則と一致せず、ドットでの分割はエス�
   リポジトリルートの `CLAUDE.md` に置き、本文書とは分離すること (MUST)。
   本文書は「何を守るか」を、`CLAUDE.md` は「どう作業するか」を扱う。
 
-**Version**: 1.9.0 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-09-04
+**Version**: 1.10.0 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-09-04
