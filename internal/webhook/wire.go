@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package webhook
 
 import "github.com/iij/external-dns-iij-dpf-webhook/internal/provider"

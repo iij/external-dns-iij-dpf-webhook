@@ -215,6 +215,9 @@ DNS を一切変更しない。
 - [ ] T081 検証用ゾーンで [quickstart.md](./quickstart.md) の全手順を実行し、結果を記録する
 - [ ] T082 1,000 件規模のレコードを持つ検証用ゾーンで、レコード一覧の取得と適用が成立することを確認する (SC-008)
 - [ ] T083 ExternalDNS と本 provider をサイドカー構成で動かし、Ingress の作成から 5 分以内にレコードが反映されること、差分の振動が起きないことを確認する (SC-001/SC-007)
+- [X] T085 `LICENSE` (Apache-2.0) と `NOTICE` をリポジトリルートに置き、全 Go ファイルに SPDX ヘッダを付与する。`make license-check` で検証する (constitution v1.9.0)
+- [ ] T086 [P] 依存モジュールに許容するライセンスの範囲を確定し、constitution の TODO(DEPENDENCY_LICENSE_POLICY) を解消する。252 モジュールに依存しており、方針なしでは非互換なものの混入に気付けない
+- [ ] T087 [P] 配布物へのライセンス表記の同梱方式を確定し、constitution の TODO(DISTRIBUTION_NOTICE) を解消する。scratch イメージにはバイナリと CA 証明書しかなく、Apache-2.0 依存の NOTICE を置く場所がない
 - [ ] T084 `golangci-lint` の指摘と `govulncheck` の報告を解消する。抑制する場合は `nolint` に理由を併記する (constitution: Go コード品質)
 
 ---

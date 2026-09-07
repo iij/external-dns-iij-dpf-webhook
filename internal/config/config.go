@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package config は起動時の設定を読み込み、検証する。
 //
 // 本パッケージの設計方針は原則 VI (Default-Deny) に従う。

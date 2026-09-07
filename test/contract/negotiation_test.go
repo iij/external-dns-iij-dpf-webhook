@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package contract は ExternalDNS webhook provider API の契約テストを収める。
 //
 // 原則 I により、契約テストが仕様の唯一の実行可能な表現である。仕様の解釈が

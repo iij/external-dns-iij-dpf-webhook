@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package dnsname は、ドメイン名を文字列ではなく DNS の名前として扱うための型を提供する。
 //
 // 本パッケージが存在する理由は、正規化の状態を型で保証することにある。

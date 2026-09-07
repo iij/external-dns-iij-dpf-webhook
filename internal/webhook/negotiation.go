@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package webhook は ExternalDNS webhook provider API の HTTP 層を担う。
 //
 // 本パッケージの範囲は契約の実装に限る。ドメインロジックは internal/provider に、

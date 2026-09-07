@@ -8,7 +8,7 @@ IMAGE ?= external-dns-iij-dpf-webhook
 CONTAINER_TOOL ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 
 .PHONY: all
-all: fmt-check build lint vuln test
+all: fmt-check license-check build lint vuln test
 
 ## fmt-check: 整形されていないファイルがあれば失敗する (gofmt -l の出力が空であること)
 .PHONY: fmt-check
@@ -24,6 +24,21 @@ fmt-check:
 .PHONY: fmt
 fmt:
 	gofmt -w .
+
+## license-check: 全 Go ファイルに SPDX ヘッダがあることを検証する
+## constitution v1.9.0: すべての Go ファイルの先頭に SPDX を記載すること (MUST)
+.PHONY: license-check
+license-check:
+	@missing=""; \
+	for f in $$(git ls-files '*.go'; git ls-files --others --exclude-standard '*.go'); do \
+		head -1 "$$f" | grep -q 'SPDX-License-Identifier: Apache-2.0' || missing="$$missing $$f"; \
+	done; \
+	if [ -n "$$missing" ]; then \
+		echo "SPDX ヘッダがないファイル:"; \
+		for f in $$missing; do echo "  $$f"; done; \
+		echo "各ファイルの先頭に '// SPDX-License-Identifier: Apache-2.0' を追加してください"; \
+		exit 1; \
+	fi
 
 .PHONY: build
 build:

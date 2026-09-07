@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package integration は provider のドメインロジックと DPF クライアント層を
 // 組み合わせて検証する。DPF API はモックに差し替える (原則 II)。
 package integration

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Command webhook は IIJ DNS プラットフォームサービス (DPF) を DNS プロバイダとして
 // 提供する ExternalDNS webhook provider である。
 //

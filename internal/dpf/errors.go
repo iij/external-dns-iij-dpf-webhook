@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package dpf は DPF API へのアクセスを担う。
 //
 // 原則 II により、github.com/iij/dpf-go への依存は本パッケージの内側に閉じる。

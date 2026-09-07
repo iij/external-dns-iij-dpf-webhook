@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package server は 2 つの HTTP リスナーを起動・停止する。
 //
 // リスナーを 2 つに分けるのは、公開範囲が異なるためである。

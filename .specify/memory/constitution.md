@@ -1,5 +1,23 @@
 <!--
 Sync Impact Report
+- Version change: 1.8.0 → 1.9.0
+- Bump rationale: ライセンスに関する規範を新設した。本体を Apache-2.0 とし、
+  全 Go ファイルへの SPDX ヘッダ付与を MUST とした。規範の追加のため MINOR。
+- Modified principles: なし
+- Modified sections:
+  - 技術・配布制約: 「ライセンス」サブセクションを新設。
+  - 開発ワークフローと品質ゲート: SPDX ヘッダの検査を CI ゲートに追加。
+- Added sections: なし
+- Removed sections: なし
+- Deferred TODOs:
+  - TODO(DEPENDENCY_LICENSE_POLICY): 依存モジュールに許容するライセンスの範囲を
+    確定する。現在 252 モジュールに依存しており、方針なしでは非互換なものの
+    混入に気付けない。
+  - TODO(DISTRIBUTION_NOTICE): 配布物へのライセンス表記の同梱方式を確定する。
+    scratch イメージにはバイナリと CA 証明書しか入っておらず、Apache-2.0 依存の
+    NOTICE 伝播義務を満たす置き場所がない。配布 feature で決める。
+
+Sync Impact Report (v1.8.0)
 - Version change: 1.7.0 → 1.8.0
 - Bump rationale: DPF API クライアントに `github.com/iij/dpf-go` の使用を義務付け、
   アクセストークンの取得経路をファイルとシークレット管理サービスの 2 経路に限定した。
@@ -289,6 +307,25 @@ ExternalDNS は本サービスを無人で繰り返し呼び出すため、冪�
   本プロジェクトのスコープ外とする (MUST NOT)。DPF クライアント層を独立パッケージとして
   公開する必要が生じた場合は、本 constitution の改訂を伴う。
 
+**ライセンス**
+
+- 本プロジェクトのライセンスは Apache License 2.0 とする (MUST)。
+  リポジトリルートに `LICENSE` を置くこと (MUST)。
+- 著作権表示は `Copyright 2026 Internet Initiative Japan Inc.` とする (MUST)。
+- **すべての Go ファイルの先頭に `// SPDX-License-Identifier: Apache-2.0` を
+  記載すること (MUST)。** テストファイルも対象とする。欠けたファイルを
+  マージしないこと (MUST NOT)。
+- 依存モジュールに許容するライセンスの範囲は
+  TODO(DEPENDENCY_LICENSE_POLICY) で確定する。確定までの間、依存を追加する
+  PR ではそのライセンスを確認すること (MUST)。
+- 配布物へのライセンス表記の同梱方式は TODO(DISTRIBUTION_NOTICE) で確定する。
+
+**根拠**: ライセンスの不備は、機能の欠陥と違って後から静かに効いてくる。
+表示を欠いたまま配布したものは回収できず、利用者側の法務判断を狂わせる。
+SPDX ヘッダをファイル単位で必須にするのは、コードが切り出されて別の場所に
+置かれたときにも由来が追えるようにするためである。`LICENSE` だけではファイル単位の
+追跡ができない。
+
 **Go コード品質**
 
 以下のツールをコード品質の基準とし、その判断を人の裁量で覆さないこと (MUST)。
@@ -501,6 +538,7 @@ DNS の大文字小文字規則と一致せず、ドットでの分割はエス�
   `golangci-lint` の設定として自動化すること (SHOULD)。
 - CI は以下をすべて通過することをマージの条件とすること (MUST):
   - 整形の検証 (`gofmt -l ./...` の出力が空であること)
+  - 全 Go ファイルに SPDX ヘッダが存在することの検証
   - ビルド (`go build ./...`)
   - 静的解析 (`golangci-lint run`)
   - 脆弱性検査 (`govulncheck ./...`)
@@ -545,4 +583,4 @@ DNS の大文字小文字規則と一致せず、ドットでの分割はエス�
   リポジトリルートの `CLAUDE.md` に置き、本文書とは分離すること (MUST)。
   本文書は「何を守るか」を、`CLAUDE.md` は「どう作業するか」を扱う。
 
-**Version**: 1.8.0 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-09-04
+**Version**: 1.9.0 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-09-04

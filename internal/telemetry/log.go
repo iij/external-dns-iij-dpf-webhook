@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package telemetry はログ・メトリクス・トレースを提供する。
 //
 // 原則 V は 3 種類のテレメトリすべてを求める。本ファイルはそのうちログを扱う。

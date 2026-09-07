@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package provider は本サービスのドメインロジックを担う。
 //
 // 管理対象範囲の判定、変更セットの検証、DPF の制約に合わせた調整がここに属する。

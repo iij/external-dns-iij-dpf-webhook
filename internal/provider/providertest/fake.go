@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package providertest は provider の境界を差し替えるための偽実装を提供する。
 //
 // 原則 II は「上位層のテストが実際の DPF API に到達しないこと」を求める。
