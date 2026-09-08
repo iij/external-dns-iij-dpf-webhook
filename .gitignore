@@ -26,3 +26,6 @@ Thumbs.db
 *.tmp
 .vscode/
 .idea/
+
+# エージェントの作業用 worktree (リポジトリ本体の一部ではない)
+.claude/worktrees/

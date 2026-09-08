@@ -208,10 +208,10 @@ DNS を一切変更しない。
 
 **Purpose**: 複数ストーリーにまたがる仕上げ
 
-- [ ] T077 [P] `README.md` に利用前提条件 PC-001〜PC-004 を記載する。特に、ロックを取らない他の機械的変更者の変更が失われうること、管理対象ゾーンに未反映の編集を残さないこと (spec.md 利用前提条件、plan.md)
-- [ ] T078 [P] `README.md` に対応レコード種別 (9 種別)、対応する ExternalDNS のバージョン (v0.22.0 以降)、webhook API のメディアタイプを明記する (constitution v1.1.0)
-- [ ] T079 [P] `README.md` に、シェルを持たないイメージのデバッグ手順を ephemeral container を用いる方法として記載する (research R2)
-- [ ] T080 [P] `README.md` に、トークンの供給方法 (ファイルマウント / シークレット管理サービス) と、環境変数を使わない理由を記載する
+- [X] T077 [P] `README.md` に利用前提条件 PC-001〜PC-004 を記載する。特に、ロックを取らない他の機械的変更者の変更が失われうること、管理対象ゾーンに未反映の編集を残さないこと (spec.md 利用前提条件、plan.md)
+- [X] T078 [P] `README.md` に対応レコード種別 (9 種別)、対応する ExternalDNS のバージョン (v0.22.0 以降)、webhook API のメディアタイプを明記する (constitution v1.1.0)
+- [X] T079 [P] `README.md` に、シェルを持たないイメージのデバッグ手順を ephemeral container を用いる方法として記載する (research R2)
+- [X] T080 [P] `README.md` に、トークンの供給方法 (ファイルマウント / シークレット管理サービス) と、環境変数を使わない理由を記載する
 - [ ] T081 検証用ゾーンで [quickstart.md](./quickstart.md) の全手順を実行し、結果を記録する
 - [ ] T082 1,000 件規模のレコードを持つ検証用ゾーンで、レコード一覧の取得と適用が成立することを確認する (SC-008)
 - [ ] T083 ExternalDNS と本 provider をサイドカー構成で動かし、Ingress の作成から 5 分以内にレコードが反映されること、差分の振動が起きないことを確認する (SC-001/SC-007)
@@ -219,8 +219,8 @@ DNS を一切変更しない。
 - [ ] T086 [P] 依存モジュールに許容するライセンスの範囲を確定し、constitution の TODO(DEPENDENCY_LICENSE_POLICY) を解消する。252 モジュールに依存しており、方針なしでは非互換なものの混入に気付けない
 - [X] T087 [P] 配布物へのライセンス表記の同梱方式を確定し、constitution の TODO(DISTRIBUTION_NOTICE) を解消する (v1.10.0)。`/licenses/` に本体と依存の本文を同梱し、OCI アノテーションを付与。`make verify-licenses` で検証する
 - [ ] T088 [P] リリース時に SBOM と provenance を referrers として紐づける手順を確立する。`make image-push` (docker buildx --attest) を用いる。レジストリが必要なため、実際の付与確認はリリース環境で行う (constitution v1.10.0)
-- [ ] T089 [P] `README.md` に、イメージの `/licenses/` の構成と、SBOM / provenance の参照方法 (`cosign tree` など) を記載する
-- [ ] T084 `golangci-lint` の指摘と `govulncheck` の報告を解消する。抑制する場合は `nolint` に理由を併記する (constitution: Go コード品質)
+- [ ] T089 [P] `README.md` に SBOM / provenance の参照方法 (`cosign tree` など) を記載する。`/licenses/` の構成は記載済み。SBOM のリリース手順は別途対応中のため、それが固まってから書く
+- [X] T084 `golangci-lint` の指摘と `govulncheck` の報告を解消する。抑制する場合は `nolint` に理由を併記する (constitution: Go コード品質)
 
 ---
 

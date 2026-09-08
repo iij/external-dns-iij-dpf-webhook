@@ -232,6 +232,55 @@ func TestLoad_OTLPEnabledWhenEndpointSet(t *testing.T) {
 	}
 }
 
+// --help は使い方を返し、エラーにしない。
+//
+// フラグを持つプログラムが使い方を示せないと、利用者は設定項目を
+// ソースを読まずに知る手段がない。
+func TestLoad_HelpReturnsUsage(t *testing.T) {
+	t.Parallel()
+
+	for _, flag := range []string{"-h", "--help"} {
+		_, err := config.Load([]string{flag})
+		if !errors.Is(err, config.ErrHelpRequested) {
+			t.Errorf("%s = %v, want ErrHelpRequested", flag, err)
+		}
+	}
+}
+
+// 使い方の文面に主要な設定項目が現れる。
+func TestUsage_ListsKeySettings(t *testing.T) {
+	t.Parallel()
+
+	usage := config.Usage()
+
+	// flag.PrintDefaults はダッシュ 1 つで出力する。両形式が受け付けられる。
+	for _, want := range []string{
+		"-domain-filter",
+		"-dpf-token-file",
+		"-dpf-token-secret-manager",
+		"-provider-addr",
+		"-exposed-addr",
+		"-otlp-endpoint",
+		"-log-level",
+	} {
+		if !strings.Contains(usage, want) {
+			t.Errorf("使い方に %q が現れない:\n%s", want, usage)
+		}
+	}
+}
+
+// 使い方にトークンを直接渡す項目が現れない (constitution v1.8.0)。
+func TestUsage_HasNoInlineTokenOption(t *testing.T) {
+	t.Parallel()
+
+	usage := config.Usage()
+	for _, forbidden := range []string{"-dpf-token ", "-dpf-api-token"} {
+		if strings.Contains(usage, forbidden) {
+			t.Errorf("使い方に %q が現れた。トークンを引数で渡す経路は作らない", forbidden)
+		}
+	}
+}
+
 // 設定値そのものにトークンを書かせる経路を用意しない (constitution v1.8.0)。
 func TestLoad_HasNoInlineTokenFlag(t *testing.T) {
 	t.Parallel()

@@ -41,6 +41,13 @@ func main() {
 func run(args []string) error {
 	cfg, err := config.Load(args)
 	if err != nil {
+		// 使い方の要求は異常ではない。表示して正常終了する。
+		if errors.Is(err, config.ErrHelpRequested) {
+			// 標準出力への書き込みに失敗しても、他に伝える手段がない。
+			//nolint:errcheck,gosec // 使い方の出力に失敗しても取れる手段がない
+			fmt.Fprint(os.Stdout, config.Usage())
+			return nil
+		}
 		return err
 	}
 

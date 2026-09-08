@@ -14,6 +14,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
@@ -29,6 +30,12 @@ var ErrMissingRequired = errors.New("config: required setting is missing")
 
 // ErrInvalid は設定値を解釈できないことを表す。
 var ErrInvalid = errors.New("config: invalid setting")
+
+// ErrHelpRequested は使い方の表示を求められたことを表す。
+//
+// エラーとして返すが、異常ではない。呼び出し側は使い方を出力して
+// 正常終了すること。
+var ErrHelpRequested = errors.New("config: help requested")
 
 // supportedSecretManagers は対応するシークレット管理サービスの許可リスト。
 //
@@ -123,12 +130,64 @@ func (f *domainFilterFlag) Set(v string) error {
 // 必須設定が欠けている場合、および値を解釈できない場合はエラーを返す。
 // 呼び出し側はこの場合に起動を中止すること。既定値で続行してはならない (FR-018)。
 func Load(args []string) (Config, error) {
+	fs, v := newFlagSet()
+
+	if err := fs.Parse(args); err != nil {
+		// -h / --help は異常ではない。呼び出し側が使い方を出して正常終了する。
+		if errors.Is(err, flag.ErrHelp) {
+			return Config{}, ErrHelpRequested
+		}
+		return Config{}, fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+
+	return v.build()
+}
+
+// Usage は設定項目の一覧を返す。
+//
+// --help で表示するほか、設定の誤りを報告する際にも使える。
+func Usage() string {
+	fs, _ := newFlagSet()
+
+	var buf bytes.Buffer
+	buf.WriteString("external-dns-iij-dpf-webhook — ExternalDNS webhook provider for IIJ DPF\n\n")
+	buf.WriteString("設定項目 (-flag と --flag のどちらの書き方も使えます):\n")
+	fs.SetOutput(&buf)
+	fs.PrintDefaults()
+
+	buf.WriteString("\nアクセストークンは --dpf-token-file か、\n")
+	buf.WriteString("--dpf-token-secret-manager と --dpf-token-secret-id の組で与えます。\n")
+	buf.WriteString("環境変数と引数からトークンを受け取る経路は用意していません。\n")
+
+	return buf.String()
+}
+
+// values は解釈済みのフラグ値を保持する。
+type values struct {
+	domains        domainFilterFlag
+	dpfEndpoint    *string
+	tokenFile      *string
+	secretManager  *string
+	secretID       *string
+	secretEndpoint *string
+	providerAddr   *string
+	exposedAddr    *string
+	otlpEndpoint   *string
+	otlpProtocol   *string
+	otlpInsecure   *bool
+	logLevel       *string
+}
+
+// newFlagSet は設定項目を定義した FlagSet を返す。
+//
+// Load と Usage の双方から使う。定義が 1 箇所にあることで、
+// 使い方の表示と実際に受け付ける項目がずれない。
+func newFlagSet() (*flag.FlagSet, *values) {
 	fs := flag.NewFlagSet("webhook", flag.ContinueOnError)
-	// 使い方の出力は呼び出し側に委ねる。ここでは黙って失敗させる。
+	// 解釈失敗時の出力は呼び出し側に委ねる。
 	fs.SetOutput(io.Discard)
 
 	var (
-		domains        domainFilterFlag
 		dpfEndpoint    = fs.String("dpf-endpoint", "", "DPF API のエンドポイント (未指定なら既定値)")
 		tokenFile      = fs.String("dpf-token-file", "", "DPF アクセストークンを収めたファイルのパス")
 		secretManager  = fs.String("dpf-token-secret-manager", "", "トークンを取得するシークレット管理サービス (vault|aws|azure|gcp)")
@@ -142,48 +201,62 @@ func Load(args []string) (Config, error) {
 		otlpInsecure = fs.Bool("otlp-insecure", false, "OTLP 送出先への TLS 検証を無効にする")
 		logLevel     = fs.String("log-level", "info", "ログレベル (debug|info|warn|error)")
 	)
-	fs.Var(&domains, "domain-filter", "管理対象ドメイン (複数指定可、未指定なら管理対象なし)")
+	v := &values{
+		dpfEndpoint:    dpfEndpoint,
+		tokenFile:      tokenFile,
+		secretManager:  secretManager,
+		secretID:       secretID,
+		secretEndpoint: secretEndpoint,
+		providerAddr:   providerAddr,
+		exposedAddr:    exposedAddr,
+		otlpEndpoint:   otlpEndpoint,
+		otlpProtocol:   otlpProtocol,
+		otlpInsecure:   otlpInsecure,
+		logLevel:       logLevel,
+	}
+	fs.Var(&v.domains, "domain-filter", "管理対象ドメイン (複数指定可、未指定なら管理対象なし)")
 
 	// 意図的に定義しないフラグ:
 	//   --dpf-token         トークンを引数で渡す経路は作らない (constitution v1.8.0)
 	//   環境変数 DPF_API_TOKEN も参照しない。dpf-go の既定経路を使わないのはそのため。
 	// flag はこれらを未定義として拒否するため、指定すると起動に失敗する。
 
-	if err := fs.Parse(args); err != nil {
-		return Config{}, fmt.Errorf("%w: %w", ErrInvalid, err)
-	}
+	return fs, v
+}
 
-	level, err := parseLogLevel(*logLevel)
+// build は解釈済みの値を検証して設定を組み立てる。
+func (v *values) build() (Config, error) {
+	level, err := parseLogLevel(*v.logLevel)
 	if err != nil {
 		return Config{}, err
 	}
 
 	dpf := DPF{
-		Endpoint:       *dpfEndpoint,
-		TokenFile:      *tokenFile,
-		SecretManager:  *secretManager,
-		SecretID:       *secretID,
-		SecretEndpoint: *secretEndpoint,
+		Endpoint:       *v.dpfEndpoint,
+		TokenFile:      *v.tokenFile,
+		SecretManager:  *v.secretManager,
+		SecretID:       *v.secretID,
+		SecretEndpoint: *v.secretEndpoint,
 	}
 	if err := validateTokenSource(dpf); err != nil {
 		return Config{}, err
 	}
 
-	if err := validateOTLPProtocol(*otlpProtocol); err != nil {
+	if err := validateOTLPProtocol(*v.otlpProtocol); err != nil {
 		return Config{}, err
 	}
 
 	return Config{
-		Scope: dnsname.NewScope(domains...),
+		Scope: dnsname.NewScope(v.domains...),
 		DPF:   dpf,
 		Server: Server{
-			ProviderAddr: *providerAddr,
-			ExposedAddr:  *exposedAddr,
+			ProviderAddr: *v.providerAddr,
+			ExposedAddr:  *v.exposedAddr,
 		},
 		Telemetry: Telemetry{
-			OTLPEndpoint: *otlpEndpoint,
-			OTLPProtocol: *otlpProtocol,
-			OTLPInsecure: *otlpInsecure,
+			OTLPEndpoint: *v.otlpEndpoint,
+			OTLPProtocol: *v.otlpProtocol,
+			OTLPInsecure: *v.otlpInsecure,
 		},
 		LogLevel: level,
 	}, nil
