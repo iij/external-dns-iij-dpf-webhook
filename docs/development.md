@@ -70,6 +70,51 @@ make verify-aslr
 [research.md R1](../specs/001-webhook-provider/research.md) を参照。ビルドフラグを
 変更する場合は、必ず `make verify-aslr` を通すこと。
 
+## リリース
+
+リリースを公開すると `.github/workflows/release.yml` が走り、配布イメージの SBOM を
+SPDX JSON (`sbom.spdx.json`) で生成してリリースページへ添付する。
+
+SBOM の対象はソースツリーではなく**配布されるコンテナイメージ**である。実際に
+リンクされた依存を反映するのはイメージを走査した結果だからである
+(constitution v1.10.0 が配布形態をコンテナイメージのみと定めている)。
+
+手元で同じ内容を確かめられる。
+
+```bash
+make sbom     # イメージをビルドし、SBOM を生成して内容を検証する
+```
+
+`syft` が要る。CI と同じ版に固定すること。手元と CI で走査結果が食い違わないようにする。
+
+```bash
+go install github.com/anchore/syft/cmd/syft@v1.51.1
+```
+
+### 添付前の検証
+
+`.github/scripts/verify_sbom.py` が、添付する前に SBOM の内容を確かめる。
+
+- SPDX 形式であること
+- パッケージが 50 件以上あること (走査対象の取り違えを検出する)
+- 自身のモジュール、`github.com/miekg/dns`、`github.com/iij/dpf-go` を含むこと
+
+空や壊れた SBOM をそのまま添付すると、供給網の情報が「あるのに使えない」状態で
+配布される。そのため検証に失敗した場合は添付せず、ワークフローを失敗させる。
+
+### 必要なシークレット
+
+| シークレット | 用途 | 公開後 |
+|---|---|---|
+| `MODULE_TOKEN` | `github.com/iij/dpf-go` の取得。`GITHUB_TOKEN` は当該リポジトリにしか及ばないため使えない | 不要になる |
+
+未設定でもワークフローは失敗せず警告を出す。`dpf-go` の公開後を見据えているため。
+ただし公開前は、イメージのビルドが `go mod download` の段で失敗する。
+
+> **未了**: SBOM と provenance をレジストリの referrers として紐づける件
+> (constitution v1.10.0、tasks T088) は、レジストリの決定を伴うため本ワークフローの
+> 範囲外である。`make image-push` に手順を用意してある。
+
 ## テスト
 
 ```bash
