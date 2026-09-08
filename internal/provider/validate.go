@@ -7,15 +7,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/miekg/dns"
+
 	"github.com/iij/external-dns-iij-dpf-webhook/internal/dnsname"
 )
-
-// txtMaxOctets は TXT の character-string 1 個の上限。
-//
-// RFC 1035 が定める長さ制限であり、DPF のマニュアルにも同じ値が記載されている。
-// 1 つの TXT レコードは複数の character-string を持てるため、合計がこの値を
-// 超えることは正常である (FR-032)。
-const txtMaxOctets = 255
 
 // numericFieldMax は MX の preference、SRV の priority / weight / port の上限。
 const numericFieldMax = 65535
@@ -163,26 +158,18 @@ func validateCNAMEExclusivity(cs ChangeSet) error {
 	return nil
 }
 
-// validateTXT は TXT の character-string の長さを検証する。
+// validateTXT は TXT の値が表現形式として解釈できることを確かめる。
 //
-// FR-032: 制限は character-string 1 個あたり 255 オクテット。複数の
-// character-string の合計がこれを超えるのは正常であり、合計長を理由に
-// 失敗としてはならない (DKIM 鍵などが該当する)。
+// 長さによる拒否は行わない。255 オクテットを超える character-string は
+// [NormalizeTXT] が分割して受け入れる (FR-032)。長すぎることを理由に
+// 拒否するより、分割して受け入れる方が利用者にとって実害が小さい。
 //
-// 長さはオクテットで数える。文字数ではない。マルチバイト文字では両者が食い違う。
+// 引用符が閉じていないなど、解釈できない値は恒久的な失敗とする。
+// 再試行しても同じように失敗する。
 func validateTXT(r Record) error {
 	for _, v := range r.Values {
-		parts, err := SplitTXT(v)
-		if err != nil {
+		if _, err := SplitTXT(v); err != nil {
 			return fmt.Errorf("%w: %s TXT: 値を解釈できません: %w", ErrPermanent, r.Name, err)
-		}
-		for _, p := range parts {
-			if len(p) > txtMaxOctets {
-				return fmt.Errorf(
-					"%w: %s TXT: character-string が %d オクテットあります (上限 %d)。"+
-						"複数の character-string に分割してください",
-					ErrPermanent, r.Name, len(p), txtMaxOctets)
-			}
 		}
 	}
 	return nil
@@ -218,74 +205,94 @@ func validateNumericPrefix(r Record, n, want int) error {
 //
 //	"STR1" "STR2"
 //
-// 引用符を含まない値は、1 つの character-string として扱う。送信側が
-// 引用符を付けずに送ってくる場合があるため。
+// 解釈は miekg/dns に委ねる。引用符の対応、エスケープ、10 進エスケープの扱いを
+// 自前で実装すると、DNS の表現形式との差異がそのままバグになる。
 //
-// miekg/dns の RR 解釈を用いない。同ライブラリは 255 オクテットを超える
-// character-string を自動的に分割するため、長さ違反が検出できなくなり、
-// 分割位置を保つ要件 (FR-032a) にも反する。ここで必要なのは「与えられた
-// 表現をそのまま分解すること」であり、正規化ではない。
+// 255 オクテットを超える character-string は、miekg/dns が自動的に分割する。
+// 長すぎることを理由に拒否するより、分割して受け入れる方が利用者にとって
+// 実害が小さい。
 //
-// エスケープ (\\ と \" および \DDD) は復号する。長さはエスケープを解いた
-// オクテット数で数えるため。
+// 引用符を含まない値は、全体を 1 つの character-string として扱う。
+// そのまま miekg/dns に渡すと空白で分割されてしまうが、TXT の複数
+// character-string は受信側で連結して解釈されるため、"v=spf1 -all" が
+// "v=spf1" "-all" になると値の意味が変わる (連結すると空白が失われる)。
 func SplitTXT(value string) ([]string, error) {
-	if !strings.Contains(value, `"`) {
-		return []string{value}, nil
+	txt, err := parseTXT(value)
+	if err != nil {
+		return nil, err
 	}
-
-	var (
-		out     []string
-		cur     strings.Builder
-		inQuote bool
-	)
-
-	for i := 0; i < len(value); i++ {
-		c := value[i]
-
-		switch {
-		case c == '\\':
-			if i+1 >= len(value) {
-				return nil, fmt.Errorf("末尾のバックスラッシュが閉じていません")
-			}
-			next := value[i+1]
-			// \DDD は 10 進 3 桁でオクテットを表す。
-			if isDigit(next) && i+3 < len(value) && isDigit(value[i+2]) && isDigit(value[i+3]) {
-				n, err := strconv.Atoi(value[i+1 : i+4])
-				if err != nil || n < 0 || n > 255 {
-					return nil, fmt.Errorf("10 進エスケープが不正です: %q", value[i:i+4])
-				}
-				cur.WriteByte(byte(n))
-				i += 3
-				continue
-			}
-			cur.WriteByte(next)
-			i++
-
-		case c == '"':
-			if inQuote {
-				out = append(out, cur.String())
-				cur.Reset()
-			}
-			inQuote = !inQuote
-
-		case inQuote:
-			cur.WriteByte(c)
-
-		default:
-			// 引用符の外側の空白は区切り。それ以外の文字は表現形式として不正。
-			if c != ' ' && c != '\t' {
-				return nil, fmt.Errorf("引用符の外に文字があります: %q", value)
-			}
-		}
-	}
-
-	if inQuote {
-		return nil, fmt.Errorf("引用符が閉じていません: %q", value)
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("character-string がありません: %q", value)
-	}
-	return out, nil
+	return txt.Txt, nil
 }
 
-func isDigit(c byte) bool { return c >= '0' && c <= '9' }
+// NormalizeTXT は DPF へ送る TXT の値を返す。
+//
+// character-string がすべて 255 オクテット以下であれば、受け取った値を
+// そのまま返す。分割位置とエスケープの表現を変えないため (FR-032a)。
+//
+// 255 オクテットを超える character-string がある場合に限り、分割後の表現へ
+// 書き換える。元の値のまま送っても DPF に拒否されるため、ここで整えないと
+// 自動分割の意味がない。
+func NormalizeTXT(value string) (string, error) {
+	txt, err := parseTXT(value)
+	if err != nil {
+		return "", err
+	}
+
+	// miekg/dns は 255 オクテットを超える character-string を解釈の時点で
+	// 分割してしまうため、分割後の長さを見ても元が長すぎたかは分からない。
+	// 入力に含まれる引用符区間の数と、解釈結果の数を比べて判断する。
+	if len(txt.Txt) <= countQuotedSegments(value) {
+		return value, nil
+	}
+
+	// String() は "name TTL CLASS TXT <値>" を返す。値の部分だけを取り出す。
+	full := txt.String()
+	idx := strings.Index(full, "TXT\t")
+	if idx < 0 {
+		return "", fmt.Errorf("TXT の再直列化に失敗しました: %q", value)
+	}
+	return full[idx+len("TXT\t"):], nil
+}
+
+// countQuotedSegments は値に含まれる character-string の数を数える。
+//
+// 引用符を含まない値は全体で 1 つ。含む場合は、エスケープされていない
+// 引用符の対の数を数える。
+func countQuotedSegments(value string) int {
+	if !strings.Contains(value, `"`) {
+		return 1
+	}
+
+	quotes := 0
+	for i := 0; i < len(value); i++ {
+		switch value[i] {
+		case '\\':
+			i++ // 次の 1 文字はエスケープされている
+		case '"':
+			quotes++
+		}
+	}
+	return quotes / 2
+}
+
+// parseTXT は値を TXT レコードとして解釈する。
+//
+// 名前と TTL は解釈のためだけに与える固定値であり、結果には影響しない。
+func parseTXT(value string) (*dns.TXT, error) {
+	v := value
+	if !strings.Contains(v, `"`) {
+		// 引用符で囲って 1 つの character-string にする。
+		// バックスラッシュは引用の内側でエスケープ扱いになるため先に退避する。
+		v = `"` + strings.ReplaceAll(v, `\\`, `\\\\`) + `"`
+	}
+
+	rr, err := dns.NewRR("txt-parse.invalid. 0 IN TXT " + v)
+	if err != nil {
+		return nil, err
+	}
+	txt, ok := rr.(*dns.TXT)
+	if !ok {
+		return nil, fmt.Errorf("TXT として解釈できません: %q", value)
+	}
+	return txt, nil
+}

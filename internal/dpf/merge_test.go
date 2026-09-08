@@ -4,6 +4,7 @@ package dpf
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	dpfapi "github.com/iij/dpf-go"
@@ -326,4 +327,74 @@ func TestGuard_IgnoresSOAAndApexNS(t *testing.T) {
 	if err := guard(current, set, provider.ChangeSet{}); err != nil {
 		t.Errorf("SOA / apex NS がガードに引っかかった: %v", err)
 	}
+}
+
+// 255 オクテットを超える TXT は、分割後の表現で投入される。
+//
+// 元の値のまま送ると DPF に拒否される。自動分割を実際に効かせるには
+// 境界で書き換える必要がある (FR-032)。
+func TestMerge_SplitsOverlongTXT(t *testing.T) {
+	t.Parallel()
+
+	long := `"` + strings.Repeat("a", 300) + `"`
+	cs := provider.ChangeSet{
+		Create: []provider.Record{pr("t.example.jp", provider.TypeTXT, 300, long)},
+	}
+
+	set, err := merge(nil, cs)
+	if err != nil {
+		t.Fatalf("merge = error %v", err)
+	}
+
+	got := find(t, set, "t.example.jp.", dpfapi.RECORDSRRTYPE_TXT)
+	if got == nil {
+		t.Fatalf("投入集合に TXT がない: %+v", set)
+	}
+
+	v := values(got)
+	if len(v) != 1 {
+		t.Fatalf("rdata = %d 件, want 1", len(v))
+	}
+	if v[0] == long {
+		t.Error("300 オクテットの値がそのまま投入されている。分割されねばならない")
+	}
+
+	parts, err := provider.SplitTXT(v[0])
+	if err != nil {
+		t.Fatalf("投入値を解釈できない: %v", err)
+	}
+	if len(parts) != 2 || len(parts[0]) != 255 || len(parts[1]) != 45 {
+		t.Errorf("分割結果の長さ = %v, want [255 45]", lengthsOf(parts))
+	}
+}
+
+// 255 以下の TXT はそのまま投入される。分割位置を変えない (FR-032a)。
+func TestMerge_PreservesValidTXT(t *testing.T) {
+	t.Parallel()
+
+	value := `"part-one" "part-two"`
+	cs := provider.ChangeSet{
+		Create: []provider.Record{pr("t.example.jp", provider.TypeTXT, 300, value)},
+	}
+
+	set, err := merge(nil, cs)
+	if err != nil {
+		t.Fatalf("merge = error %v", err)
+	}
+
+	got := find(t, set, "t.example.jp.", dpfapi.RECORDSRRTYPE_TXT)
+	if got == nil {
+		t.Fatal("投入集合に TXT がない")
+	}
+	if v := values(got); len(v) != 1 || v[0] != value {
+		t.Errorf("投入値 = %q, want %q (書き換えてはならない)", v, value)
+	}
+}
+
+func lengthsOf(parts []string) []int {
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		out = append(out, len(p))
+	}
+	return out
 }

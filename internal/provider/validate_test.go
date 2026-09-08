@@ -198,21 +198,70 @@ func TestValidate_SRVNumericRange(t *testing.T) {
 	}
 }
 
-// FR-032: TXT の character-string 1 個は 255 オクテットまで。
-func TestValidate_TXTSingleStringLimit(t *testing.T) {
+// FR-032: 255 オクテットを超える character-string は拒否せず、自動的に分割する。
+//
+// 長すぎることを理由に止めるより、分割して受け入れる方が利用者にとって
+// 実害が小さい。
+func TestValidate_TXTOverlongIsAccepted(t *testing.T) {
 	t.Parallel()
 
-	within := `"` + strings.Repeat("a", 255) + `"`
-	over := `"` + strings.Repeat("a", 256) + `"`
+	for _, n := range []int{255, 256, 600} {
+		value := `"` + strings.Repeat("a", n) + `"`
+		cs := ChangeSet{Create: []Record{r("t.example.jp", TypeTXT, 300, value)}}
+		if err := Validate(cs, zoneJP); err != nil {
+			t.Errorf("%d オクテットの character-string が拒否された: %v", n, err)
+		}
+	}
+}
 
-	cs := ChangeSet{Create: []Record{r("t.example.jp", TypeTXT, 300, within)}}
-	if err := Validate(cs, zoneJP); err != nil {
-		t.Errorf("255 オクテットの character-string が拒否された: %v", err)
+// 255 を超える値は、DPF へ送る前に分割された表現へ書き換える。
+//
+// 元の値のまま送ると DPF に拒否されるため、ここで整えないと自動分割の
+// 意味がない。
+func TestNormalizeTXT_SplitsOverlong(t *testing.T) {
+	t.Parallel()
+
+	value := `"` + strings.Repeat("a", 256) + `"`
+
+	got, err := NormalizeTXT(value)
+	if err != nil {
+		t.Fatalf("NormalizeTXT = error %v", err)
+	}
+	if got == value {
+		t.Fatal("256 オクテットの値が書き換えられていない")
 	}
 
-	cs = ChangeSet{Create: []Record{r("t.example.jp", TypeTXT, 300, over)}}
-	if err := Validate(cs, zoneJP); err == nil {
-		t.Error("256 オクテットの character-string が受け入れられた")
+	parts, err := SplitTXT(got)
+	if err != nil {
+		t.Fatalf("分割後の値を解釈できない: %v", err)
+	}
+	if len(parts) != 2 || len(parts[0]) != 255 || len(parts[1]) != 1 {
+		t.Errorf("分割結果 = %d 個 (長さ %v), want [255 1]", len(parts), lengths(parts))
+	}
+}
+
+// 255 以下の値はそのまま返す。分割位置とエスケープの表現を変えない (FR-032a)。
+func TestNormalizeTXT_LeavesValidValuesUnchanged(t *testing.T) {
+	t.Parallel()
+
+	cases := []string{
+		`"a" "b"`,
+		`"only"`,
+		`"has space" "second"`,
+		`"esc\"aped"`,
+		"v=spf1 -all",
+		`"` + strings.Repeat("k", 200) + `" "` + strings.Repeat("k", 200) + `"`,
+	}
+
+	for _, v := range cases {
+		got, err := NormalizeTXT(v)
+		if err != nil {
+			t.Errorf("NormalizeTXT(%.30q) = error %v", v, err)
+			continue
+		}
+		if got != v {
+			t.Errorf("NormalizeTXT(%.30q) が値を書き換えた: %.60q", v, got)
+		}
 	}
 }
 
@@ -231,31 +280,26 @@ func TestValidate_TXTMultipleStringsMayExceed255InTotal(t *testing.T) {
 	}
 }
 
-// 複数 character-string のうち 1 つでも 255 を超えれば失敗する。
-func TestValidate_TXTRejectsWhenAnyStringExceeds(t *testing.T) {
+// 引用符が閉じていない値は恒久的な失敗。解釈できないものは再試行しても通らない。
+func TestValidate_TXTRejectsUnparsable(t *testing.T) {
 	t.Parallel()
 
-	value := `"short" "` + strings.Repeat("x", 256) + `"`
-
-	cs := ChangeSet{Create: []Record{r("t.example.jp", TypeTXT, 300, value)}}
-	if err := Validate(cs, zoneJP); err == nil {
-		t.Error("256 オクテットを含む TXT が受け入れられた")
+	cs := ChangeSet{Create: []Record{r("t.example.jp", TypeTXT, 300, `"unterminated`)}}
+	err := Validate(cs, zoneJP)
+	if err == nil {
+		t.Fatal("引用符が閉じていない値が受け入れられた")
+	}
+	if !errors.Is(err, ErrPermanent) {
+		t.Errorf("err = %v, want ErrPermanent", err)
 	}
 }
 
-// オクテット数で数える。文字数ではない。
-//
-// マルチバイト文字では両者が食い違う。DNS の制限はオクテット。
-func TestValidate_TXTCountsOctetsNotRunes(t *testing.T) {
-	t.Parallel()
-
-	// 3 バイト文字 86 個 = 258 オクテット (文字数では 86)。
-	value := `"` + strings.Repeat("あ", 86) + `"`
-
-	cs := ChangeSet{Create: []Record{r("t.example.jp", TypeTXT, 300, value)}}
-	if err := Validate(cs, zoneJP); err == nil {
-		t.Error("258 オクテット (86 文字) の TXT が受け入れられた。オクテットで数えること")
+func lengths(parts []string) []int {
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		out = append(out, len(p))
 	}
+	return out
 }
 
 // FR-032a: character-string の分割位置を保つ。
@@ -272,7 +316,7 @@ func TestSplitTXT_PreservesSplit(t *testing.T) {
 		{`"a" "b"`, []string{"a", "b"}},
 		{`"only"`, []string{"only"}},
 		{`"has space" "second"`, []string{"has space", "second"}},
-		{`"esc\"aped"`, []string{`esc"aped`}},
+		{`"esc\"aped"`, []string{`esc\"aped`}},
 	}
 
 	for _, c := range cases {

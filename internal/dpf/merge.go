@@ -78,12 +78,18 @@ func merge(current []dpfapi.Record, cs provider.ChangeSet) ([]dpfapi.OverwriteRe
 			}
 		}
 
-		// TTL の範囲は provider.Validate が検証済み (0〜2147483647)。
+		values, err := normalizeValues(r)
+		if err != nil {
+			return nil, err
+		}
+
+		// TTL の範囲は provider.ValidateFormat が検証済み (0〜2147483647)。
 		// 境界へ届く前に弾かれるため、ここで桁があふれることはない。
-		//nolint:gosec // provider.Validate で範囲を検証済み
+		//nolint:gosec // provider.ValidateFormat で範囲を検証済み
 		ttl := int32(r.TTL)
+
 		base.Ttl = *dpfapi.NewNullableInt32(&ttl)
-		base.Rdata = toRdata(r.Values)
+		base.Rdata = toRdata(values)
 		set[key] = base
 	}
 
@@ -211,6 +217,29 @@ func toOverwrite(r *dpfapi.Record) dpfapi.OverwriteRecordsInner {
 		Description: r.GetDescription(),
 		Labels:      labels,
 	}
+}
+
+// normalizeValues は DPF へ送る値を整える。
+//
+// 現在の対象は TXT のみ。255 オクテットを超える character-string を含む値は、
+// 分割後の表現へ書き換える。元の値のまま送ると DPF に拒否されるため、
+// 自動分割を実際に効かせるにはここで整える必要がある。
+//
+// 分割が不要な値は書き換えない。分割位置とエスケープの表現を保つため (FR-032a)。
+func normalizeValues(r provider.Record) ([]string, error) {
+	if r.Type != provider.TypeTXT {
+		return r.Values, nil
+	}
+
+	out := make([]string, 0, len(r.Values))
+	for _, v := range r.Values {
+		n, err := provider.NormalizeTXT(v)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s TXT: %w", provider.ErrPermanent, r.Name, err)
+		}
+		out = append(out, n)
+	}
+	return out, nil
 }
 
 // toRdata は値の並びを DPF の rdata へ変換する。
