@@ -398,3 +398,47 @@ func lengthsOf(parts []string) []int {
 	}
 	return out
 }
+
+// TTL 未指定 (0) は null として投入される。
+//
+// DPF の TTL は minimum 1 であり、0 は範囲外で拒否される。0 は本サービスでは
+// 「未指定」を表すため、null を送ってゾーンの既定 TTL に委ねる。
+func TestMerge_UnsetTTLBecomesNull(t *testing.T) {
+	t.Parallel()
+
+	cs := provider.ChangeSet{
+		Create: []provider.Record{pr("www.example.jp", provider.TypeA, 0, "192.0.2.1")},
+	}
+
+	set, err := merge(nil, cs)
+	if err != nil {
+		t.Fatalf("merge = error %v", err)
+	}
+
+	got := find(t, set, "www.example.jp.", dpfapi.RECORDSRRTYPE_A)
+	if got == nil {
+		t.Fatal("投入集合に対象がない")
+	}
+	if got.Ttl.IsSet() && got.Ttl.Get() != nil {
+		t.Errorf("TTL = %d が投入された。0 は null として送ること", *got.Ttl.Get())
+	}
+}
+
+// TTL が指定されていればその値で投入される。
+func TestMerge_ExplicitTTLIsSent(t *testing.T) {
+	t.Parallel()
+
+	cs := provider.ChangeSet{
+		Create: []provider.Record{pr("www.example.jp", provider.TypeA, 300, "192.0.2.1")},
+	}
+
+	set, err := merge(nil, cs)
+	if err != nil {
+		t.Fatalf("merge = error %v", err)
+	}
+
+	got := find(t, set, "www.example.jp.", dpfapi.RECORDSRRTYPE_A)
+	if got == nil || got.Ttl.Get() == nil || *got.Ttl.Get() != 300 {
+		t.Errorf("TTL が 300 で投入されていない: %+v", got)
+	}
+}

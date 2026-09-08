@@ -15,12 +15,6 @@ import (
 // numericFieldMax は MX の preference、SRV の priority / weight / port の上限。
 const numericFieldMax = 65535
 
-// ttlMax は TTL の上限。
-//
-// RFC 2181 は TTL を符号なし 31 ビットと定める。範囲外の値をそのまま
-// 境界へ渡すと桁があふれ、意図しない TTL になる。
-const ttlMax = 2147483647
-
 // ValidateFormat は、ゾーンを知らなくても判断できる制約を検証する。
 //
 // 種別、TTL、名前の形、値の形、および CNAME の排他性が対象。これらは
@@ -64,9 +58,12 @@ func validateRecord(r Record) error {
 		return fmt.Errorf("%w: %s %s", ErrUnsupportedType, r.Name, r.Type)
 	}
 
-	if r.TTL < 0 || r.TTL > ttlMax {
-		return fmt.Errorf("%w: %s %s: TTL %d は 0〜%d の範囲でなければなりません",
-			ErrPermanent, r.Name, r.Type, r.TTL, ttlMax)
+	// TTL は 0 (未指定) か、DPF が受け付ける範囲でなければならない。
+	// 範囲外の値は [Adjust] が補正するが、調整を経ずに届いた場合はここで止める。
+	// 桁のあふれる値を黙って丸めるより、失敗として返す方が意図が伝わる。
+	if r.TTL != ttlUnset && (r.TTL < ttlMin || r.TTL > ttlMax) {
+		return fmt.Errorf("%w: %s %s: TTL %d は %d〜%d の範囲でなければなりません (0 は未指定)",
+			ErrPermanent, r.Name, r.Type, r.TTL, ttlMin, ttlMax)
 	}
 
 	switch r.Type {

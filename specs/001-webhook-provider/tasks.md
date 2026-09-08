@@ -163,14 +163,14 @@ DNS を一切変更しない。
 
 ### Tests for User Story 3 ⚠️ 先に書いて失敗を確認する
 
-- [ ] T061 [P] [US3] `test/contract/adjustendpoints_test.go` に `POST /adjustendpoints` の契約テストを書く。成功時 `200`、調整不要の入力がそのまま返ること
-- [ ] T062 [P] [US3] `internal/provider/adjust_test.go` に冪等性のテストを書く。調整済みの内容を再度調整しても変化しないこと (FR-015)
-- [ ] T063 [P] [US3] `internal/provider/adjust_test.go` に TTL 補正のテストを書く。DPF が許容しない TTL が許容範囲に補正されること (FR-014)
+- [X] T061 [P] [US3] `test/contract/adjustendpoints_test.go` に `POST /adjustendpoints` の契約テストを書く。成功時 `200`、調整不要の入力がそのまま返ること
+- [X] T062 [P] [US3] `internal/provider/adjust_test.go` に冪等性のテストを書く。調整済みの内容を再度調整しても変化しないこと (FR-015)
+- [X] T063 [P] [US3] `internal/provider/adjust_test.go` に TTL 補正のテストを書く。DPF が許容しない TTL が許容範囲に補正されること (FR-014)
 
 ### Implementation for User Story 3
 
-- [ ] T064 [US3] `internal/provider/adjust.go` に調整処理を実装する。冪等であること
-- [ ] T065 [US3] `internal/webhook/adjust.go` に `POST /adjustendpoints` のハンドラを実装する
+- [X] T064 [US3] `internal/provider/adjust.go` に調整処理を実装する。冪等であること
+- [X] T065 [US3] `internal/webhook/adjust.go` に `POST /adjustendpoints` のハンドラを実装する
 
 **Checkpoint**: US1〜US3 が独立して動作し、差分の振動が起きない
 

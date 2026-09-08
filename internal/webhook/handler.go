@@ -25,8 +25,7 @@ func NewHandler(p *provider.Provider) http.Handler {
 	mux.HandleFunc("GET /{$}", h.getRoot)
 	mux.HandleFunc("GET /records", h.getRecords)
 	mux.HandleFunc("POST /records", h.postRecords)
-
-	// POST /adjustendpoints は US3 で追加する。
+	mux.HandleFunc("POST /adjustendpoints", h.postAdjustEndpoints)
 
 	return Negotiate(mux)
 }
@@ -74,6 +73,30 @@ func (h *Handler) postRecords(w http.ResponseWriter, r *http.Request) {
 	// 204 には本文を伴わせない。Content-Type は Negotiate が設定済みだが、
 	// 本文がないためどちらでも解釈は変わらない。
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// postAdjustEndpoints はレコードを DPF に保存される形へ整えて返す
+// (POST /adjustendpoints)。
+//
+// ExternalDNS が期待する値と DPF に実際に保存される値を一致させるための操作で
+// ある。食い違うと、ExternalDNS は毎回差分を検出して同じ変更を適用し続ける
+// (SC-007)。
+//
+// DPF には触れない。表現を整えるだけであり、外部の状態を必要としない。
+func (h *Handler) postAdjustEndpoints(w http.ResponseWriter, r *http.Request) {
+	var in []endpoint
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		WriteError(w, fmt.Errorf("%w: 要求を解釈できません: %w", provider.ErrPermanent, err))
+		return
+	}
+
+	records, err := toRecords(in)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	writeJSON(w, toEndpoints(provider.Adjust(records)))
 }
 
 // writeJSON は v を JSON として書く。

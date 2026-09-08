@@ -83,12 +83,7 @@ func merge(current []dpfapi.Record, cs provider.ChangeSet) ([]dpfapi.OverwriteRe
 			return nil, err
 		}
 
-		// TTL の範囲は provider.ValidateFormat が検証済み (0〜2147483647)。
-		// 境界へ届く前に弾かれるため、ここで桁があふれることはない。
-		//nolint:gosec // provider.ValidateFormat で範囲を検証済み
-		ttl := int32(r.TTL)
-
-		base.Ttl = *dpfapi.NewNullableInt32(&ttl)
+		base.Ttl = toTTL(r.TTL)
 		base.Rdata = toRdata(values)
 		set[key] = base
 	}
@@ -240,6 +235,22 @@ func normalizeValues(r provider.Record) ([]string, error) {
 		out = append(out, n)
 	}
 	return out, nil
+}
+
+// toTTL は TTL を DPF の表現へ変換する。
+//
+// DPF の TTL は nullable であり、許容範囲は 1〜2147483647 である。0 は範囲外で
+// あり、本サービスでは「未指定」を表すため null として送る。ゾーンの既定 TTL が
+// 使われる。0 をそのまま送ると DPF に拒否される。
+func toTTL(ttl int) dpfapi.NullableInt32 {
+	if ttl == 0 {
+		return *dpfapi.NewNullableInt32(nil)
+	}
+	// 範囲は provider.ValidateFormat が検証済み。境界へ届く前に弾かれるため、
+	// ここで桁があふれることはない。
+	//nolint:gosec // provider.ValidateFormat で範囲を検証済み
+	v := int32(ttl)
+	return *dpfapi.NewNullableInt32(&v)
 }
 
 // toRdata は値の並びを DPF の rdata へ変換する。
