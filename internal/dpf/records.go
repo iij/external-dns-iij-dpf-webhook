@@ -21,29 +21,30 @@ import (
 // 許可リスト外の種別は除外する。DPF 上に CAA や ANAME が存在すること自体は
 // 正常であり、それらを上位層へ見せないことで、変更・削除の対象から外す (FR-027)。
 func (c *Client) ListRecords(ctx context.Context, zone provider.Zone) ([]provider.Record, error) {
-	api := c.api.GetAPIClient()
-
 	var result []provider.Record
-	err := c.api.Operation(ctx, func() error {
-		// dpf-go は応答ボディを内部で閉じたうえで *http.Response を返す。
-		// ここで閉じ直す先はすでにない。
-		//nolint:bodyclose // dpf-go が Body を閉じたうえで返すため
-		records, resp, err := api.RecordsAPI.GetRecordCurrents(ctx, zone.ID).ExecuteAll()
-		if err != nil {
-			return wrapAPIError(resp, err)
-		}
 
-		out := make([]provider.Record, 0, len(records.GetResults()))
-		for _, r := range records.GetResults() {
-			rec, ok := toProviderRecord(&r)
-			if !ok {
-				continue
+	err := c.observe(ctx, "list_records", func(ctx context.Context) error {
+		return c.api.Operation(ctx, func() error {
+			api := c.api.GetAPIClient()
+
+			//nolint:bodyclose // dpf-go が Body を閉じたうえで返すため
+			records, resp, err := api.RecordsAPI.GetRecordCurrents(ctx, zone.ID).ExecuteAll()
+			if err != nil {
+				return wrapAPIError(resp, err)
 			}
-			out = append(out, rec)
-		}
 
-		result = out
-		return nil
+			out := make([]provider.Record, 0, len(records.GetResults()))
+			for _, r := range records.GetResults() {
+				rec, ok := toProviderRecord(&r)
+				if !ok {
+					continue
+				}
+				out = append(out, rec)
+			}
+
+			result = out
+			return nil
+		})
 	})
 	if err != nil {
 		return nil, Classify(fmt.Errorf("ゾーン %s のレコード取得に失敗: %w", zone.Name, err))

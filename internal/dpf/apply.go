@@ -71,14 +71,16 @@ func (c *Client) currentRecords(ctx context.Context, zone provider.Zone) ([]dpfa
 	api := c.api.GetAPIClient()
 
 	var result []dpfapi.Record
-	err := c.api.Operation(ctx, func() error {
-		//nolint:bodyclose // dpf-go が Body を閉じたうえで返すため
-		records, resp, err := api.RecordsAPI.GetRecordCurrents(ctx, zone.ID).ExecuteAll()
-		if err != nil {
-			return wrapAPIError(resp, err)
-		}
-		result = records.GetResults()
-		return nil
+	err := c.observe(ctx, "current_records", func(ctx context.Context) error {
+		return c.api.Operation(ctx, func() error {
+			//nolint:bodyclose // dpf-go が Body を閉じたうえで返すため
+			records, resp, err := api.RecordsAPI.GetRecordCurrents(ctx, zone.ID).ExecuteAll()
+			if err != nil {
+				return wrapAPIError(resp, err)
+			}
+			result = records.GetResults()
+			return nil
+		})
 	})
 	if err != nil {
 		return nil, Classify(fmt.Errorf("ゾーン %s の反映済みレコード取得に失敗: %w", zone.Name, err))
@@ -98,22 +100,24 @@ func (c *Client) atomicChanges(ctx context.Context, zone provider.Zone, set []dp
 
 	body := dpfapi.PatchZoneAtomicChanges{Records: set}
 
-	err := c.api.Operation(ctx, func() error {
-		//nolint:bodyclose // dpf-go が Body を閉じたうえで返すため
-		async, resp, err := api.ZonesAPI.
-			PatchZoneAtomicChanges(ctx, zone.ID).
-			PatchZoneAtomicChanges(body).
-			Execute()
-		if err != nil {
-			return wrapAPIError(resp, err)
-		}
+	err := c.observe(ctx, "atomic_changes", func(ctx context.Context) error {
+		return c.api.Operation(ctx, func() error {
+			//nolint:bodyclose // dpf-go が Body を閉じたうえで返すため
+			async, resp, err := api.ZonesAPI.
+				PatchZoneAtomicChanges(ctx, zone.ID).
+				PatchZoneAtomicChanges(body).
+				Execute()
+			if err != nil {
+				return wrapAPIError(resp, err)
+			}
 
-		//nolint:bodyclose // dpf-go が Body を閉じたうえで返すため
-		_, jobResp, jobErr := api.JobsAPI.SyncWaitContext(ctx, async, resp, nil)
-		if jobErr != nil {
-			return wrapAPIError(jobResp, jobErr)
-		}
-		return nil
+			//nolint:bodyclose // dpf-go が Body を閉じたうえで返すため
+			_, jobResp, jobErr := api.JobsAPI.SyncWaitContext(ctx, async, resp, nil)
+			if jobErr != nil {
+				return wrapAPIError(jobResp, jobErr)
+			}
+			return nil
+		})
 	})
 	if err != nil {
 		return Classify(fmt.Errorf("ゾーン %s の適用に失敗: %w", zone.Name, err))

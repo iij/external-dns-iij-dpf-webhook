@@ -63,17 +63,37 @@ func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	tel, err := telemetry.New(ctx, cfg.Telemetry, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		// Shutdown は送出の失敗をエラーとして返さない。テレメトリの不調で
+		// 終了処理が失敗扱いになるのを避けるため (FR-024)。
+		//nolint:errcheck,gosec // Shutdown は設計上エラーを返さない
+		tel.Shutdown(ctx)
+	}()
+
+	if tel.OTLPEnabled() {
+		logger.Info("OTLP による送出を有効にしました",
+			"endpoint", cfg.Telemetry.OTLPEndpoint,
+			"protocol", cfg.Telemetry.OTLPProtocol)
+		if tel.OTLPInsecure() {
+			logger.Warn("OTLP 送出先への TLS 検証が無効です。既定は有効です")
+		}
+	}
+
 	// トークンの供給元をここで検証する。取得できない状態で待ち受けを始めると、
 	// probe は通るのに要求がすべて失敗する状態になる (FR-017)。
-	backend, err := dpf.NewClient(ctx, cfg.DPF)
+	backend, err := dpf.NewClient(ctx, cfg.DPF, tel.Metrics(), tel.Tracer())
 	if err != nil {
 		return err
 	}
 
 	p := provider.New(cfg.Scope, backend, logger)
+	p.WithTelemetry(tel.Metrics(), tel.Tracer())
 
-	// 計測値の提供は US4 で追加する。それまで /metrics は公開しない。
-	srv := server.New(cfg.Server, webhook.NewHandler(p), nil)
+	srv := server.New(cfg.Server, webhook.NewHandler(p), tel.MetricsHandler())
 	if err := srv.Start(ctx); err != nil {
 		return err
 	}

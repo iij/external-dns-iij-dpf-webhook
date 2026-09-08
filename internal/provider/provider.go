@@ -7,7 +7,26 @@ import (
 	"fmt"
 	"log/slog"
 
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
+
 	"github.com/iij/external-dns-iij-dpf-webhook/internal/dnsname"
+)
+
+// Recorder は provider が計測に用いる操作。
+//
+// internal/telemetry の実装を受け取るが、その型に依存しない。テストで
+// 計測を伴わずにドメインロジックを検証できるようにするため。
+type Recorder interface {
+	RecordChanges(ctx context.Context, op string, success bool, count int)
+	RecordApplyFailure(ctx context.Context)
+}
+
+// 操作種別のラベル値。ラベルに使うため有限の集合に限る。
+const (
+	OpCreate = "create"
+	OpUpdate = "update"
+	OpDelete = "delete"
 )
 
 // Provider は本サービスのドメインロジックを担う。
@@ -18,6 +37,9 @@ type Provider struct {
 	scope   dnsname.Scope
 	backend Backend
 	logger  *slog.Logger
+
+	metrics Recorder
+	tracer  trace.Tracer
 }
 
 // New は範囲とバックエンドから Provider を組み立てる。
@@ -25,7 +47,25 @@ type Provider struct {
 // scope が空の場合、いかなるレコードも管理対象にならない。これは異常ではなく、
 // 設定されていない状態を表す (FR-002)。
 func New(scope dnsname.Scope, backend Backend, logger *slog.Logger) *Provider {
-	return &Provider{scope: scope, backend: backend, logger: logger}
+	return &Provider{
+		scope:   scope,
+		backend: backend,
+		logger:  logger,
+		// 既定では計測もトレースも行わない。テレメトリが未設定でも
+		// 分岐なしに呼び出せるようにするため。
+		tracer: noop.NewTracerProvider().Tracer(""),
+	}
+}
+
+// WithTelemetry は計測器とトレーサを設定する。
+//
+// 設定しなくても動作する。テレメトリの有無でドメインロジックの経路が
+// 変わらないようにするため。
+func (p *Provider) WithTelemetry(metrics Recorder, tracer trace.Tracer) {
+	p.metrics = metrics
+	if tracer != nil {
+		p.tracer = tracer
+	}
 }
 
 // Filters は管理対象ドメインを返す。
@@ -53,6 +93,9 @@ func (p *Provider) Records(ctx context.Context) ([]Record, error) {
 	if p.scope.IsEmpty() {
 		return []Record{}, nil
 	}
+
+	ctx, span := p.tracer.Start(ctx, "provider.Records")
+	defer span.End()
 
 	zones, err := p.backend.ListZones(ctx)
 	if err != nil {

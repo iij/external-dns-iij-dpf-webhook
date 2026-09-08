@@ -185,20 +185,20 @@ DNS を一切変更しない。
 
 ### Tests for User Story 4 ⚠️ 先に書いて失敗を確認する
 
-- [ ] T066 [P] [US4] `internal/telemetry/metrics_test.go` に、計測器 1 組に Prometheus と OTLP の 2 リーダーが接続され、両形式が同一の計測値を表すことのテストを書く (原則 V、research R8)
-- [ ] T067 [P] [US4] `internal/telemetry/metrics_test.go` に、ゾーン名・レコード名・レコード値が既定でラベルに含まれないことのテストを書く (原則 V)
-- [ ] T068 [P] [US4] `internal/telemetry/otlp_test.go` に、OTLP 送出先が未設定なら送出しないこと、TLS 検証が既定で有効であることのテストを書く (原則 VI、constitution v1.7.0)
-- [ ] T069 [P] [US4] `test/integration/telemetry_failure_test.go` に、テレメトリ送出先が到達不能でも DNS 処理が継続することのテストを書く (FR-024)
-- [ ] T070 [P] [US4] `test/integration/secret_leak_test.go` に、ログ・計測値・トレース・エラーメッセージのいずれにもトークンが現れないことのテストを書く (FR-023/SC-006)
+- [X] T066 [P] [US4] `internal/telemetry/metrics_test.go` に、計測器 1 組に Prometheus と OTLP の 2 リーダーが接続され、両形式が同一の計測値を表すことのテストを書く (原則 V、research R8)
+- [X] T067 [P] [US4] `internal/telemetry/metrics_test.go` に、ゾーン名・レコード名・レコード値が既定でラベルに含まれないことのテストを書く (原則 V)
+- [X] T068 [P] [US4] `internal/telemetry/otlp_test.go` に、OTLP 送出先が未設定なら送出しないこと、TLS 検証が既定で有効であることのテストを書く (原則 VI、constitution v1.7.0)
+- [X] T069 [P] [US4] `test/integration/telemetry_failure_test.go` に、テレメトリ送出先が到達不能でも DNS 処理が継続することのテストを書く (FR-024)
+- [X] T070 [P] [US4] `test/integration/secret_leak_test.go` に、ログ・計測値・トレース・エラーメッセージのいずれにもトークンが現れないことのテストを書く (FR-023/SC-006)
 
 ### Implementation for User Story 4
 
-- [ ] T071 [P] [US4] `internal/telemetry/metrics.go` に計測器を 1 組定義する。レコード変更操作の成否と件数、DPF 呼び出しの成否と所要時間 (FR-021)
-- [ ] T072 [US4] `internal/telemetry/metrics.go` に Prometheus リーダーと OTLP リーダーを接続する。同一の計測器から両形式を出す
-- [ ] T073 [US4] `internal/server/server.go` の exposed リスナーに `/metrics` を追加する。返す情報を healthz と metrics に限る (contracts/webhook-api.md)
-- [ ] T074 [P] [US4] `internal/telemetry/trace.go` にトレースの初期化を実装する。OTLP (gRPC) と OTLP/HTTP に対応する
-- [ ] T075 [US4] `internal/dpf/client.go` に `dpf-go` の OpenTelemetry 連携を組み込み、要求受信から DPF 呼び出しまでを 1 つのトレースに接続する (FR-022)
-- [ ] T076 [US4] `internal/telemetry/log.go` に OpenTelemetry 形式のログ送出を追加する。標準出力への出力は止めない (原則 V)
+- [X] T071 [P] [US4] `internal/telemetry/metrics.go` に計測器を 1 組定義する。レコード変更操作の成否と件数、DPF 呼び出しの成否と所要時間 (FR-021)
+- [X] T072 [US4] `internal/telemetry/metrics.go` に Prometheus リーダーと OTLP リーダーを接続する。同一の計測器から両形式を出す
+- [X] T073 [US4] `internal/server/server.go` の exposed リスナーに `/metrics` を追加する。返す情報を healthz と metrics に限る (contracts/webhook-api.md)
+- [X] T074 [P] [US4] `internal/telemetry/trace.go` にトレースの初期化を実装する。OTLP (gRPC) と OTLP/HTTP に対応する
+- [X] T075 [US4] `internal/dpf/client.go` に `dpf-go` の OpenTelemetry 連携を組み込み、要求受信から DPF 呼び出しまでを 1 つのトレースに接続する (FR-022)
+- [X] T076 [US4] `internal/telemetry/log.go` に OpenTelemetry 形式のログ送出を追加する。標準出力への出力は止めない (原則 V)
 
 **Checkpoint**: 全ユーザーストーリーが独立して動作する
 

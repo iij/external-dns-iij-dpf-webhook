@@ -31,6 +31,11 @@ func (p *Provider) ApplyChanges(ctx context.Context, cs ChangeSet) error {
 		return nil
 	}
 
+	// 要求受信から DPF 呼び出しまでを 1 つの流れとして追跡する (FR-022)。
+	// dpf 層が作る span はこの span の子として繋がる。
+	ctx, span := p.tracer.Start(ctx, "provider.ApplyChanges")
+	defer span.End()
+
 	inScope := p.filterToScope(cs)
 	if inScope.IsEmpty() {
 		return nil
@@ -63,7 +68,10 @@ func (p *Provider) ApplyChanges(ctx context.Context, cs ChangeSet) error {
 
 		p.logApply(zone, zoneChanges)
 
-		if err := p.backend.Apply(ctx, zone, zoneChanges); err != nil {
+		err := p.backend.Apply(ctx, zone, zoneChanges)
+		p.recordOutcome(ctx, zoneChanges, err == nil)
+
+		if err != nil {
 			// 1 つのゾーンが失敗したら全体を失敗として返す。一部だけ成功した
 			// 状態を成功として返すと、ExternalDNS は失敗した側の変更も
 			// 反映済みと見なす (FR-012)。
@@ -72,6 +80,29 @@ func (p *Provider) ApplyChanges(ctx context.Context, cs ChangeSet) error {
 	}
 
 	return nil
+}
+
+// recordOutcome は適用の成否と件数を計測する (FR-021)。
+//
+// ラベルは操作種別と成否のみ。ゾーン名やレコード名は含めない (原則 V)。
+func (p *Provider) recordOutcome(ctx context.Context, cs ChangeSet, success bool) {
+	if p.metrics == nil {
+		return
+	}
+
+	for op, records := range map[string][]Record{
+		OpCreate: cs.Create,
+		OpUpdate: cs.UpdateTo,
+		OpDelete: cs.Delete,
+	} {
+		if len(records) > 0 {
+			p.metrics.RecordChanges(ctx, op, success, len(records))
+		}
+	}
+
+	if !success {
+		p.metrics.RecordApplyFailure(ctx)
+	}
 }
 
 // filterToScope は管理対象範囲に含まれるレコードだけを残す。
