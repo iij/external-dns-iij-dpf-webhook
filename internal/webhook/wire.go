@@ -2,7 +2,12 @@
 
 package webhook
 
-import "github.com/iij/external-dns-iij-dpf-webhook/internal/provider"
+import (
+	"fmt"
+
+	"github.com/iij/external-dns-iij-dpf-webhook/internal/dnsname"
+	"github.com/iij/external-dns-iij-dpf-webhook/internal/provider"
+)
 
 // 本ファイルは ExternalDNS webhook provider API の転送形式を定義する。
 //
@@ -36,6 +41,74 @@ type endpoint struct {
 type providerSpecificProperty struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
+}
+
+// changes は POST /records の要求。上流の schema "changes"。
+//
+// UpdateOld と UpdateNew は対になる。本 provider は UpdateOld を用いない。
+// 適用時点の現在値が UpdateOld と食い違っていても UpdateNew を適用する。
+// 一致を要求すると差分が解消せず振動する (SC-007、research R4)。
+type changes struct {
+	Create    []endpoint `json:"create"`
+	UpdateOld []endpoint `json:"updateOld"`
+	UpdateNew []endpoint `json:"updateNew"`
+	Delete    []endpoint `json:"delete"`
+}
+
+// toChangeSet は要求をドメインの変更セットへ変換する。
+//
+// 名前は受信時に正規化する。上流がどの表現で送っても、以降の処理は
+// 正規化名だけを扱う (research R7)。
+//
+// 解釈できない名前や種別は恒久的な失敗とする。DPF へ送る前に止めることで、
+// 無駄な API 呼び出しを避ける。
+func toChangeSet(c changes) (provider.ChangeSet, error) {
+	create, err := toRecords(c.Create)
+	if err != nil {
+		return provider.ChangeSet{}, err
+	}
+	updateTo, err := toRecords(c.UpdateNew)
+	if err != nil {
+		return provider.ChangeSet{}, err
+	}
+	del, err := toRecords(c.Delete)
+	if err != nil {
+		return provider.ChangeSet{}, err
+	}
+
+	// UpdateOld は読み取らない。上記の理由により、適用の判断に使わない。
+	return provider.ChangeSet{Create: create, UpdateTo: updateTo, Delete: del}, nil
+}
+
+func toRecords(endpoints []endpoint) ([]provider.Record, error) {
+	out := make([]provider.Record, 0, len(endpoints))
+	for _, e := range endpoints {
+		r, err := toRecord(e)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+func toRecord(e endpoint) (provider.Record, error) {
+	name, err := dnsname.Parse(e.DNSName)
+	if err != nil {
+		return provider.Record{}, fmt.Errorf("%w: 名前を解釈できません: %w", provider.ErrPermanent, err)
+	}
+
+	rtype, err := provider.ParseRecordType(e.RecordType)
+	if err != nil {
+		return provider.Record{}, err
+	}
+
+	return provider.Record{
+		Name:   name,
+		Type:   rtype,
+		TTL:    int(e.RecordTTL),
+		Values: e.Targets,
+	}, nil
 }
 
 // toEndpoint はドメインのレコードを転送形式へ変換する。

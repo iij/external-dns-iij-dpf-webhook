@@ -127,28 +127,28 @@ DNS を一切変更しない。
 
 ### Tests for User Story 2 ⚠️ 先に書いて失敗を確認する
 
-- [ ] T042 [P] [US2] `test/contract/records_post_test.go` に `POST /records` の契約テストを書く。成功時が `204 No Content` であること、空の変更セットが成功すること、末尾ドット有無の異なる名前が同一レコードとして扱われること (contracts/webhook-api.md)
-- [ ] T043 [P] [US2] `internal/provider/validate_test.go` に種別ごとの検証のテストを書く。apex NS の削除要求、`CNAME` の複数値・他種別との共存、`A`/`AAAA` の名前に含まれる `_`、`MX`/`SRV` の数値範囲外がいずれも恒久的な失敗になること (FR-029〜FR-031/FR-033)
-- [ ] T044 [P] [US2] `internal/provider/validate_test.go` に `TXT` の検証テストを書く。character-string 1 個が 256 オクテットなら失敗、複数 character-string の合計が 255 を超えるのは成功、往復で分割位置が変わらないこと (FR-032/FR-032a)
-- [ ] T045 [P] [US2] `internal/dpf/merge_test.go` にマージ規則のテストを書く。管理対象は変更後、変更セット外の管理対象は現在値、管理対象外は逐語コピー、SOA と apex NS は投入対象外になること (data-model.md 5)
-- [ ] T046 [P] [US2] `internal/dpf/merge_test.go` に投入前ガードのテストを書く。変更セット外のレコードが失われる内容になったとき、適用が中止され一時的な失敗になること (data-model.md 5)
-- [ ] T047 [P] [US2] `test/integration/apply_idempotent_test.go` に冪等性のテストを書く。同一の変更セットを 10 回適用しても最終状態が変わらないこと (FR-010/SC-002)
-- [ ] T048 [P] [US2] `test/integration/apply_scope_test.go` に、管理対象外のレコードが一切変更されないことのテストを書く。管理対象外の種別と範囲外の名前の双方について、TTL・値・コメント・ラベルが不変であること (FR-009/FR-027/SC-004)
-- [ ] T049 [P] [US2] `test/integration/apply_failure_test.go` に、適用が途中で失敗したとき成功を返さないこと、反映完了前に成功を返さないことのテストを書く (FR-011/FR-012)
-- [ ] T050 [P] [US2] `test/integration/apply_lock_test.go` に、ロックが適用ハンドラの内側に閉じることのテストを書く。レコード取得のみを行ってもロックが取得・保持されないこと (research R4)
+- [X] T042 [P] [US2] `test/contract/records_post_test.go` に `POST /records` の契約テストを書く。成功時が `204 No Content` であること、空の変更セットが成功すること、末尾ドット有無の異なる名前が同一レコードとして扱われること (contracts/webhook-api.md)
+- [X] T043 [P] [US2] `internal/provider/validate_test.go` に種別ごとの検証のテストを書く。apex NS の削除要求、`CNAME` の複数値・他種別との共存、`A`/`AAAA` の名前に含まれる `_`、`MX`/`SRV` の数値範囲外がいずれも恒久的な失敗になること (FR-029〜FR-031/FR-033)
+- [X] T044 [P] [US2] `internal/provider/validate_test.go` に `TXT` の検証テストを書く。character-string 1 個が 256 オクテットなら失敗、複数 character-string の合計が 255 を超えるのは成功、往復で分割位置が変わらないこと (FR-032/FR-032a)
+- [X] T045 [P] [US2] `internal/dpf/merge_test.go` にマージ規則のテストを書く。管理対象は変更後、変更セット外の管理対象は現在値、管理対象外は逐語コピー、SOA と apex NS は投入対象外になること (data-model.md 5)
+- [X] T046 [P] [US2] `internal/dpf/merge_test.go` に投入前ガードのテストを書く。変更セット外のレコードが失われる内容になったとき、適用が中止され一時的な失敗になること (data-model.md 5)
+- [X] T047 [P] [US2] `test/integration/apply_idempotent_test.go` に冪等性のテストを書く。同一の変更セットを 10 回適用しても最終状態が変わらないこと (FR-010/SC-002)
+- [X] T048 [P] [US2] `test/integration/apply_scope_test.go` に、管理対象外のレコードが一切変更されないことのテストを書く。管理対象外の種別と範囲外の名前の双方について、TTL・値・コメント・ラベルが不変であること (FR-009/FR-027/SC-004)
+- [X] T049 [P] [US2] `test/integration/apply_failure_test.go` に、適用が途中で失敗したとき成功を返さないこと、反映完了前に成功を返さないことのテストを書く (FR-011/FR-012)
+- [X] T050 [P] [US2] `test/integration/apply_lock_test.go` に、ロックが適用ハンドラの内側に閉じることのテストを書く。レコード取得のみを行ってもロックが取得・保持されないこと (research R4)
 
 ### Implementation for User Story 2
 
-- [ ] T051 [P] [US2] `internal/provider/changeset.go` に変更セットの型を実装する。作成・更新・削除を保持する (data-model.md 5)
-- [ ] T052 [P] [US2] `internal/provider/validate.go` に種別ごとの検証規則を実装する。DPF へ送る前に判定し、違反を恒久的な失敗とする (T043・T044 に対応)
-- [ ] T053 [US2] `internal/dpf/merge.go` にマージ処理を実装する。管理対象外レコードはドメインモデルを通さず逐語コピーする (data-model.md 5、T045 に対応)
-- [ ] T054 [US2] `internal/dpf/merge.go` に投入前ガードを実装する。失われるレコードが変更セットの削除対象と一致しなければ中止する (T046 に対応)
-- [ ] T055 [P] [US2] `internal/dpf/lock.go` にゾーンロックを実装する。`utils.NewMutex` / `LockWait` / `Unlock` を用い、有効期限を設定し、成功・失敗のいずれの経路でも解放する (research R4)
-- [ ] T056 [US2] `internal/dpf/apply.go` に変更の適用を実装する。ロック取得 → 反映済みレコードの全件取得 → マージ → ガード → 一括更新とゾーン反映 → 完了待ち → ロック解放。編集中を含む一覧を土台にしない (contracts/dpf-client.md)
-- [ ] T057 [US2] `internal/dpf/apply.go` の完了待ちに `JobsAPI.SyncWait` を用いる。反映完了前に成功を返さない (FR-011)
-- [ ] T058 [US2] `internal/provider/apply.go` に適用のドメインロジックを実装する。範囲外レコードを除外し (失敗にしない)、空の変更セットを成功として扱う (T051〜T056 に依存)
-- [ ] T059 [US2] `internal/webhook/records.go` に `POST /records` のハンドラを実装する。成功時 `204` を返す
-- [ ] T060 [US2] `internal/provider/apply.go` に、変更操作の対象ゾーン・レコード名・操作種別・結果のログ出力を追加する (FR-020)
+- [X] T051 [P] [US2] `internal/provider/changeset.go` に変更セットの型を実装する。作成・更新・削除を保持する (data-model.md 5)
+- [X] T052 [P] [US2] `internal/provider/validate.go` に種別ごとの検証規則を実装する。DPF へ送る前に判定し、違反を恒久的な失敗とする (T043・T044 に対応)
+- [X] T053 [US2] `internal/dpf/merge.go` にマージ処理を実装する。管理対象外レコードはドメインモデルを通さず逐語コピーする (data-model.md 5、T045 に対応)
+- [X] T054 [US2] `internal/dpf/merge.go` に投入前ガードを実装する。失われるレコードが変更セットの削除対象と一致しなければ中止する (T046 に対応)
+- [X] T055 [P] [US2] `internal/dpf/lock.go` にゾーンロックを実装する。`utils.NewMutex` / `LockWait` / `Unlock` を用い、有効期限を設定し、成功・失敗のいずれの経路でも解放する (research R4)
+- [X] T056 [US2] `internal/dpf/apply.go` に変更の適用を実装する。ロック取得 → 反映済みレコードの全件取得 → マージ → ガード → 一括更新とゾーン反映 → 完了待ち → ロック解放。編集中を含む一覧を土台にしない (contracts/dpf-client.md)
+- [X] T057 [US2] `internal/dpf/apply.go` の完了待ちに `JobsAPI.SyncWait` を用いる。反映完了前に成功を返さない (FR-011)
+- [X] T058 [US2] `internal/provider/apply.go` に適用のドメインロジックを実装する。範囲外レコードを除外し (失敗にしない)、空の変更セットを成功として扱う (T051〜T056 に依存)
+- [X] T059 [US2] `internal/webhook/records.go` に `POST /records` のハンドラを実装する。成功時 `204` を返す
+- [X] T060 [US2] `internal/provider/apply.go` に、変更操作の対象ゾーン・レコード名・操作種別・結果のログ出力を追加する (FR-020)
 
 **Checkpoint**: US1 と US2 が独立して動作する
 

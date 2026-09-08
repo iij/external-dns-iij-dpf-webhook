@@ -4,6 +4,7 @@ package webhook
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/iij/external-dns-iij-dpf-webhook/internal/provider"
@@ -23,8 +24,9 @@ func NewHandler(p *provider.Provider) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", h.getRoot)
 	mux.HandleFunc("GET /records", h.getRecords)
+	mux.HandleFunc("POST /records", h.postRecords)
 
-	// POST /records と POST /adjustendpoints は US2・US3 で追加する。
+	// POST /adjustendpoints は US3 で追加する。
 
 	return Negotiate(mux)
 }
@@ -44,6 +46,34 @@ func (h *Handler) getRecords(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, toEndpoints(records))
+}
+
+// postRecords は変更セットを適用する (POST /records)。
+//
+// 成功時は 204 No Content を返す。上流仕様がこの値を定めており、200 ではない。
+// 反映が完了する前に成功を返さない (FR-011)。
+func (h *Handler) postRecords(w http.ResponseWriter, r *http.Request) {
+	var c changes
+	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+		// 解釈できない要求は再試行しても同じように失敗する。
+		WriteError(w, fmt.Errorf("%w: 要求を解釈できません: %w", provider.ErrPermanent, err))
+		return
+	}
+
+	cs, err := toChangeSet(c)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	if err := h.provider.ApplyChanges(r.Context(), cs); err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	// 204 には本文を伴わせない。Content-Type は Negotiate が設定済みだが、
+	// 本文がないためどちらでも解釈は変わらない。
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // writeJSON は v を JSON として書く。
