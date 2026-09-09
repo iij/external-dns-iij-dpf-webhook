@@ -1,7 +1,11 @@
 # external-dns-iij-dpf-webhook
 
 [ExternalDNS](https://github.com/kubernetes-sigs/external-dns) の webhook provider として、
-**IIJ DNS プラットフォームサービス (DPF)** を DNS プロバイダにするサービスです。
+**IIJ DNSプラットフォームサービス (DPF)** を DNS プロバイダにするサービスです。
+
+> [!IMPORTANT]
+> 本プログラムは IIJ DNSプラットフォームサービスのサポート対象外です。
+> バグ報告や機能追加の要望は、サポートセンターではなく GitHub の Issue へお願いします。
 
 ExternalDNS Pod のサイドカーとして動作し、Ingress や Service から算出された DNS レコードを
 DPF に反映します。

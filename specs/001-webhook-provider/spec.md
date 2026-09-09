@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "webhook provider 本体（一括）— ExternalDNS webhook API の4エンドポイント（ネゴシエーション、レコード取得、調整、適用）＋ IIJ DNS プラットフォームサービス (DPF) によるレコード CRUD。最小構成で end-to-end に動くもの。"
+**Input**: User description: "webhook provider 本体（一括）— ExternalDNS webhook API の4エンドポイント（ネゴシエーション、レコード取得、調整、適用）＋ IIJ DNSプラットフォームサービス (DPF) によるレコード CRUD。最小構成で end-to-end に動くもの。"
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -388,7 +388,7 @@ DPF は種別ごとに登録可能な形を制限する。システムはこれ�
 
 - **ExternalDNS webhook provider API**: 本 provider の外部インタフェースは上流仕様に従う。
   仕様が変わった場合の追随可否は constitution の改訂を要する
-- **IIJ DNS プラットフォームサービス (DPF) の DNS API**: レコードの読み取りと変更の実体。
+- **IIJ DNSプラットフォームサービス (DPF) の DNS API**: レコードの読み取りと変更の実体。
   提供されるレコード種別、TTL の制約、変更の反映方式、レート制限が本機能の振る舞いを規定する。
   対応レコード種別と種別ごとの制約は DPF のマニュアル
   (<https://manual.iij.jp/dpf/help/19629152.html>) を典拠とする

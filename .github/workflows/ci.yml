@@ -20,9 +20,38 @@ env:
   # Makefile と同じ値。片方だけ更新すると手元と CI で判定結果が食い違う。
   GOLANGCI_LINT_VERSION: v2.13.2
   GOVULNCHECK_VERSION: v1.7.0
+  BETTERLEAKS_VERSION: v1.8.1
   IMAGE_NAME: external-dns-iij-dpf-webhook
 
 jobs:
+  # シークレットの混入検査。constitution v1.12.0 が main へのマージ前の
+  # 検査を MUST としている。
+  secrets:
+    name: シークレットの混入検査
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          # **履歴全体を取得する。** 既定の浅いクローンでは、検査が
+          # 直近のコミットしか見ない。「コミットしてから消した」という
+          # 最も起きやすい経路を素通しする (constitution v1.12.0)。
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: betterleaks を導入する
+        # バージョンを固定する。同一の履歴に対する判定結果が
+        # ツールの更新で変わらないようにするため (constitution v1.12.0)。
+        run: go install github.com/betterleaks/betterleaks@${BETTERLEAKS_VERSION}
+
+      - name: 履歴を検査する
+        # 設定はリポジトリの .betterleaks.toml を使う。手元と同一にするため。
+        run: make secret-scan
+
   # Go のコード品質。イメージを要さないため独立して速く回る。
   go:
     name: Go の品質ゲート

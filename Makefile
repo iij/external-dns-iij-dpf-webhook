@@ -20,6 +20,7 @@ SYFT_VERSION ?= v1.51.1
 GOLANGCI_LINT_VERSION ?= v2.13.2
 GOVULNCHECK_VERSION ?= v1.7.0
 GO_LICENSES_VERSION ?= latest
+BETTERLEAKS_VERSION ?= v1.8.1
 # REGISTRY_IMAGE はレジストリへ push する際の完全な参照。
 # SBOM と provenance は referrers としてレジストリに紐づくため、push が前提になる。
 REGISTRY_IMAGE ?= $(IMAGE)
@@ -38,7 +39,7 @@ BUILD_ARGS = --build-arg VERSION=$(VERSION) \
              --build-arg CREATED=$(CREATED)
 
 .PHONY: all
-all: fmt-check license-check license-deps build lint vuln test
+all: secret-scan fmt-check license-check license-deps build lint vuln test
 
 ## tools: 固定したバージョンの開発ツールを導入する
 ##
@@ -49,6 +50,7 @@ tools:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	go install github.com/google/go-licenses/v2@$(GO_LICENSES_VERSION)
 	go install github.com/anchore/syft/cmd/syft@$(SYFT_VERSION)
+	go install github.com/betterleaks/betterleaks@$(BETTERLEAKS_VERSION)
 
 ## fmt-check: 整形されていないファイルがあれば失敗する (gofmt -l の出力が空であること)
 .PHONY: fmt-check
@@ -64,6 +66,23 @@ fmt-check:
 .PHONY: fmt
 fmt:
 	gofmt -w .
+
+## secret-scan: シークレットの混入を検査する
+## constitution v1.12.0: main へマージする前に検査すること (MUST)
+##
+## **リポジトリの履歴**を対象とする。作業ツリーだけを見る検査は、
+## 「コミットしてから消した」という最も起きやすい経路を素通しする。
+## git の性質上、消しても値は履歴に残り続ける。
+##
+## 検出があればマージしない。誤検出は .betterleaks.toml に根拠を書いて通す。
+## 検査を迂回して個別に判断しない。
+.PHONY: secret-scan
+secret-scan:
+	@command -v betterleaks >/dev/null 2>&1 || { \
+		echo "betterleaks が見つかりません。'make tools' を実行してください"; \
+		exit 1; \
+	}
+	betterleaks git . --config .betterleaks.toml
 
 ## license-check: 全 Go ファイルに SPDX ヘッダがあることを検証する
 ## constitution v1.9.0: すべての Go ファイルの先頭に SPDX を記載すること (MUST)

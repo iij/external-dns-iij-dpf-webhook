@@ -212,6 +212,20 @@ DNS を一切変更しない。
 - [X] T078 [P] `README.md` に対応レコード種別 (9 種別)、対応する ExternalDNS のバージョン (v0.22.0 以降)、webhook API のメディアタイプを明記する (constitution v1.1.0)
 - [X] T079 [P] `README.md` に、シェルを持たないイメージのデバッグ手順を ephemeral container を用いる方法として記載する (research R2)
 - [X] T080 [P] `README.md` に、トークンの供給方法 (ファイルマウント / シークレット管理サービス) と、環境変数を使わない理由を記載する
+### constitution v1.12.0 / v1.13.0 への追随
+
+constitution の改訂で生じた作業。いずれも規範として MUST であり、
+`main` へマージする前に満たしている必要がある。
+
+- [X] T091 [P] `README.md` の先頭付近に、サポート範囲の注記を追加する。constitution v1.13.0 が指定する文面をそのまま記載し、要約・言い換えをしない。利用者が本プログラムの不具合をサービスの不具合と受け取り、サポートセンターへ問い合わせるのを防ぐため
+- [X] T092 [P] `.betterleaks.toml` を作成し、誤検出の除外規則とその根拠を記述する。検査を迂回して個別に判断するのではなく、設定として残す (constitution v1.12.0)
+- [X] T093 `Makefile` に `BETTERLEAKS_VERSION` を追加し、`tools` ターゲットで導入する。バージョンを固定し、手元と CI で同一の履歴に対する判定結果が変わらないようにする (constitution v1.12.0)
+- [X] T094 `Makefile` に `secret-scan` ターゲットを追加し、`make all` に組み込む。**リポジトリの履歴**を対象とする。作業ツリーだけを見る検査は「コミットしてから消した」経路を素通しする (constitution v1.12.0)
+- [X] T095 `.github/workflows/ci.yml` にシークレット検査のジョブを追加する。履歴全体を対象とするため `actions/checkout` に `fetch-depth: 0` を指定する。バージョンは `Makefile` と同じ値を使う (constitution v1.12.0)
+- [X] T096 現在の履歴に対して `make secret-scan` を実行し、混入がないことを確認する。検出された場合は当該の秘密を**失効させる**。履歴からの削除だけで済ませない。公開範囲に入った時点でその値は既に漏洩している (constitution v1.12.0)
+
+- [X] T097 [P] サービスの呼称を正式名称へ統一する。`README.md` (4 行目)、`cmd/webhook/main.go` (3 行目)、`specs/001-webhook-provider/spec.md` (9 行目、391 行目) の「IIJ DNS プラットフォームサービス」を「IIJ DNSプラットフォームサービス」へ直す (`DNS` の後の空白を削除)。`build/Containerfile` の英語表記は既に準拠している (constitution v1.14.0)
+
 - [ ] T081 検証用ゾーンで [quickstart.md](./quickstart.md) の全手順を実行し、結果を記録する
 - [ ] T082 1,000 件規模のレコードを持つ検証用ゾーンで、レコード一覧の取得と適用が成立することを確認する (SC-008)
 - [ ] T083 ExternalDNS と本 provider をサイドカー構成で動かし、Ingress の作成から 5 分以内にレコードが反映されること、差分の振動が起きないことを確認する (SC-001/SC-007)
