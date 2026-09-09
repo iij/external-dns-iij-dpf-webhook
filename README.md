@@ -101,6 +101,13 @@ kubectl create secret generic dpf-token \
 
 ```yaml
 # values.yaml
+
+# ExternalDNS 本体のバージョン。**省略しないでください。**
+# チャートの appVersion は本 provider の前提 (v0.22.0 以降) より古い場合が
+# あり、省くとそれが使われます。
+image:
+  tag: v0.22.0
+
 provider:
   name: webhook
   webhook:
@@ -138,11 +145,55 @@ extraVolumes:
     secret:
       secretName: dpf-token
 
-# 本 provider は Kubernetes API を使いません。
-automountServiceAccountToken: false
-serviceAccount:
-  automountServiceAccountToken: false
+# webhook への待ち受け時間。**既定では足りません。** 次節を参照してください。
+extraArgs:
+  - --webhook-provider-read-timeout=30s
+  - --webhook-provider-write-timeout=120s
 ```
+
+### ⚠ ServiceAccount トークンは無効化できません
+
+`automountServiceAccountToken: false` を**指定しないでください**。
+
+本 provider は Kubernetes API を使わないため、単体で見ればトークンは不要です。
+しかしこの値はチャートのテンプレートで **Pod 全体**に適用され、同じ Pod 内の
+ExternalDNS 本体からもトークンを取り上げます。ExternalDNS は Ingress や
+Service を監視するために API サーバへの認証が必要で、トークンがないと
+起動しても何も検出しません。
+
+チャートには、サイドカーだけトークンを渡さない指定がありません
+(`serviceAccount.automountServiceAccountToken` も同じく Pod 全体に効きます)。
+本 provider のコンテナにも読み取り専用でマウントされます。
+
+緩和は次の 2 つです。
+
+- ExternalDNS が使う ServiceAccount の RBAC を、必要な読み取りだけに絞る
+  (チャートの既定がそうなっています)
+- 後述の NetworkPolicy で egress を DPF API に限る。トークンがあっても
+  API サーバへ到達できなければ使えません
+
+### ⚠ 待ち受け時間は既定では足りません
+
+ExternalDNS v0.22.0 の既定値は、本 provider の応答時間に対して余裕がありません。
+
+| フラグ | 上流の既定 | 推奨 | 理由 |
+|---|---|---|---|
+| `--webhook-provider-read-timeout` | `5s` | `30s` | レコード件数に比例して伸びます |
+| `--webhook-provider-write-timeout` | `10s` | `120s` | **適用は DPF の反映完了まで待ちます** |
+
+書き込み側が要点です。本 provider は、DPF がゾーンを反映し終えるまで成功を
+返しません (FR-011)。反映は非同期ジョブであり、検証用ゾーンでの実測では
+**1 件の変更で約 8 秒**かかりました。既定の `10s` は実測に対してほとんど
+余裕がなく、ゾーンの規模や DPF 側の混み具合で超えます。
+
+超えた場合に起きることは、単なる遅延では済みません。ExternalDNS は要求を
+打ち切りますが、**DPF 側の反映はそのまま進みます**。ExternalDNS は失敗と
+見なして同じ変更を再試行するため、既に適用済みの変更を送り直します。
+結果は同じなので害は限定的ですが、無駄な負荷と、ログ上は失敗が続く状態に
+なります。
+
+読み取り側は件数に比例します。1,000 件規模のゾーンでの実測は CI の
+`1,000 件規模での検証` ジョブのログにあります。
 
 ### 3. インストールする
 
@@ -414,9 +465,17 @@ ls /proc/1/root/licenses/
 
 ## 検証状況
 
-`main` へのマージ前に、実際の DPF に対する検証を CI で行っています
-(追加・変更・削除・再適用時の冪等性、および管理対象外レコードが変化しないこと)。
+`main` へのマージ前に、実際の DPF に対する検証を CI で行っています。
 検証は破壊的操作を行うため、専用の検証用ゾーンに対して実行しています。
+
+| ワークフロー | 内容 |
+|---|---|
+| `e2e` | 追加・変更・削除、同一変更の再適用で状態が変わらないこと、管理対象外レコードが変化しないこと、webhook 契約の 4 経路、名前の表現の同一視、`TXT` の分割と往復、形式違反が `4xx` で拒否されること、トークンのローテーション、probe と計測値 |
+| `scale` | 1,000 件規模のゾーンでの取得と適用 |
+| `e2e-sidecar` | kind 上で上流チャートを用いたサイドカー構成。Ingress の作成から 5 分以内の反映、差分が振動しないこと、Ingress の削除でレコードが消えること |
+
+`e2e-sidecar` は本 README に載せた推奨 values をそのまま使います。
+記載が動かないまま残らないようにするためです。
 
 ---
 

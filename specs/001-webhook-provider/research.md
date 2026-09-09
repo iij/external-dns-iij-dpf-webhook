@@ -435,6 +435,10 @@ Phase 0 開始時点で spec に未解決の項目はなかった。plan 作成�
 | probe | `/healthz` を `http-webhook` に対して実行 | `/healthz` を exposed で提供 |
 | メトリクスの収集 | `provider.webhook.serviceMonitor` | `/metrics` を exposed で提供 |
 
+**チャートの appVersion は本サービスの前提より古い。** チャート 1.21.1 の
+appVersion は 0.21.0 であり、`image.tag` を省くとそれが使われる。本サービスは
+webhook provider API v0.22.0 を前提とするため、`image.tag` を明示する必要がある。
+
 **ポートが一致するのは偶然ではない。** 両者とも上流のチュートリアルが示す
 既定値 (provider `8888` / exposed `8080`) に従っているためである
 (constitution v1.1.0)。
@@ -445,10 +449,23 @@ Phase 0 開始時点で spec に未解決の項目はなかった。plan 作成�
 |---|---|---|
 | 非 root、`seccompProfile` | Pod 全体の `podSecurityContext` (既定で `runAsNonRoot: true`) | 可 |
 | `readOnlyRootFilesystem`、`capabilities.drop`、`allowPrivilegeEscalation: false` | `provider.webhook.securityContext` | 可 |
-| `automountServiceAccountToken: false` | Pod 全体の同名の値 (**既定は `true`**) | 可。明示的な上書きが要る |
+| `automountServiceAccountToken: false` | Pod 全体の同名の値 (**既定は `true`**) | **不可**。下記参照 |
 | resources の requests / limits | `provider.webhook.resources` | 可 |
 | トークンの Secret マウント | `extraVolumes` + `provider.webhook.extraVolumeMounts` | 可 |
 | **NetworkPolicy** | **チャートにテンプレートがない** | **不可** |
+
+**ServiceAccount トークンの無効化はチャートで賄えない。** `deployment.yaml` は
+`automountServiceAccountToken` を Pod spec に置く。同じ Pod には ExternalDNS 本体が
+同居し、そちらは Ingress と Service の監視のために API サーバへの認証を必要とする。
+`false` にすると ExternalDNS が何も検出しなくなる。`serviceAccount` 配下の同名の値も
+Pod 全体に効くため、逃げ道はない。
+
+サイドカーだけトークンを渡さない指定はテンプレートに存在しない。本サービスの
+コンテナにもトークンがマウントされる。緩和は ExternalDNS の RBAC を読み取りに
+絞ること (チャートの既定) と、NetworkPolicy で egress を DPF API に限ることの 2 つ。
+
+当初これを「可」と記録し、README の推奨 values に `false` を載せていた。Pod 全体に
+効くことを見落としていた。上流のテンプレートを読んで訂正した。
 
 **NetworkPolicy はチャートで賄えない。** テンプレート一覧に存在しないため、
 利用者が別途マニフェストとして適用する必要がある。constitution が求める

@@ -111,3 +111,72 @@ jobs:
       - name: トークンを消す
         if: always()
         run: rm -f "${RUNNER_TEMP}/dpf-token"
+
+  # 1,000 件規模での取得と適用 (T082、SC-008)。
+  #
+  # e2e の後に順に走らせる。並列に走らせない理由はワークフロー冒頭の
+  # concurrency の説明と同じで、検証用ゾーンが共有される状態だからである。
+  # ここは 1,000 件を作って消すため、同時に走ると他方の件数の表明が壊れる。
+  #
+  # `main` へ向けた PR と手動実行に限る。作成と削除に時間がかかるため、
+  # すべての PR で走らせると開発の回転が落ちる。constitution v2.1.0 が
+  # 求めるのは `main` へマージする前の確認である。
+  scale:
+    name: 1,000 件規模での検証
+    needs: e2e
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    # 1,000 件の作成・再適用・削除と、その間の一覧取得を含む。
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 非公開モジュールの取得を設定する
+        env:
+          MODULE_TOKEN: ${{ secrets.MODULE_TOKEN }}
+        run: |
+          echo "GOPRIVATE=github.com/iij/dpf-go" >> "$GITHUB_ENV"
+          if [ -z "$MODULE_TOKEN" ]; then
+            echo "::warning::MODULE_TOKEN が未設定です"
+            exit 0
+          fi
+          git config --global \
+            url."https://${MODULE_TOKEN}@github.com/iij/".insteadOf \
+            "https://github.com/iij/"
+
+      - name: 検証用の資格情報を用意する
+        id: creds
+        env:
+          DPF_TOKEN: ${{ secrets.DPF_TOKEN }}
+          ZONE_NAME: ${{ vars.DPF_TEST_ZONE_NAME }}
+        run: |
+          if [ -z "$DPF_TOKEN" ] || [ -z "$ZONE_NAME" ]; then
+            echo "::error::DPF_TOKEN と DPF_TEST_ZONE_NAME が未設定です。規模の検証が行われません"
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$DPF_TOKEN" > "${RUNNER_TEMP}/dpf-token"
+          echo "token_file=${RUNNER_TEMP}/dpf-token" >> "$GITHUB_OUTPUT"
+
+      - name: 1,000 件規模で取得と適用を検証する
+        env:
+          DPF_E2E_TOKEN_FILE: ${{ steps.creds.outputs.token_file }}
+          DPF_E2E_ZONE: ${{ vars.DPF_TEST_ZONE_NAME }}
+          # 明示しなければ規模の検証は走らない。検証用ゾーンを大きく
+          # 書き換えるため、既定では実行しない。
+          DPF_E2E_SCALE: "1"
+        run: |
+          # -v で経過時間をログに残す。予算に対する余裕を後から読めるようにする。
+          go test ./test/e2e/... -run TestScale -v -count=1 -timeout=40m
+
+      - name: トークンを消す
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dpf-token"

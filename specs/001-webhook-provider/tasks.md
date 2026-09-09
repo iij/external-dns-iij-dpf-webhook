@@ -238,9 +238,9 @@ constitution の改訂で生じた作業。いずれも規範として MUST で�
 - [X] T101 `.github/workflows/e2e.yml` を作成し、検証用ゾーンに対してレコードの追加・変更・削除と、同一変更の再適用で最終状態が変わらないこと (FR-010) を検証する。**`concurrency` で並列実行を抑止する。** 検証用ゾーンは共有される状態であり、同時実行は互いの変更を取り消し合ううえ、表明が実行タイミングに依存して失敗が再現しなくなる (constitution v2.1.0)
 - [X] T102 検証用ゾーンの DPF アクセストークンとゾーン名をリポジトリシークレットに設定する。**環境側の作業であり、これがないと T081〜T083 と T101 は実行できない**
 
-- [ ] T081 検証用ゾーンで [quickstart.md](./quickstart.md) の全手順を実行し、結果を記録する。**CI で実行すること。手元での確認で代えない** (constitution v2.1.0)
-- [ ] T082 1,000 件規模のレコードを持つ検証用ゾーンで、レコード一覧の取得と適用が成立することを CI で確認する (SC-008、constitution v2.1.0)
-- [ ] T083 ExternalDNS と本 provider をサイドカー構成で動かし、Ingress の作成から 5 分以内にレコードが反映されること、差分の振動が起きないことを確認する (SC-001/SC-007)
+- [X] T081 検証用ゾーンで [quickstart.md](./quickstart.md) の全手順を実行し、結果を記録する。**CI で実行すること。手元での確認で代えない** (constitution v2.1.0)。DPF に依存する項目を `test/e2e/quickstart_test.go` と `test/e2e/token_test.go` として機械化し、`.github/workflows/e2e.yml` の `e2e` ジョブが実行する。機械化しない項目とその理由は `test/e2e/quickstart_test.go` の冒頭に列挙した
+- [X] T082 1,000 件規模のレコードを持つ検証用ゾーンで、レコード一覧の取得と適用が成立することを CI で確認する (SC-008、constitution v2.1.0)。`test/e2e/scale_test.go` として実装し、`.github/workflows/e2e.yml` の `scale` ジョブが `main` 向け PR と手動実行で走らせる。取得・適用の所要時間を ExternalDNS の待ち受け時間 (read 5s / write 10s) と比較する
+- [X] T083 ExternalDNS と本 provider をサイドカー構成で動かし、Ingress の作成から 5 分以内にレコードが反映されること、差分の振動が起きないことを確認する (SC-001/SC-007)。`.github/workflows/e2e-sidecar.yml` が kind 上で上流チャートを用いて検証する。反映の待ち合わせは `test/e2e/sidecar_test.go`、振動の判定は `dns_record_changes_total` が増えないことで行う
 - [X] T085 `LICENSE` (Apache-2.0) と `NOTICE` をリポジトリルートに置き、全 Go ファイルに SPDX ヘッダを付与する。`make license-check` で検証する (constitution v1.9.0)
 - [X] T086 [P] 依存モジュールに許容するライセンスの範囲を確定し、constitution の TODO(DEPENDENCY_LICENSE_POLICY) を解消する (v1.11.0)。許容リストを明示し、GPL/AGPL/LGPL/SSPL を禁止。`make license-deps` で機械的に検査する
 - [X] T087 [P] 配布物へのライセンス表記の同梱方式を確定し、constitution の TODO(DISTRIBUTION_NOTICE) を解消する (v1.10.0)。`/licenses/` に本体と依存の本文を同梱し、OCI アノテーションを付与。`make verify-licenses` で検証する

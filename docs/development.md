@@ -194,6 +194,39 @@ go test ./test/e2e/... -v -count=1
 環境変数が揃っていなければスキップする。誤って本番ゾーンへ向かうより、
 検証が行われないことが明示される方が安全である。
 
+### 検証の内訳
+
+| ファイル | 対象 | 実行するジョブ |
+|---|---|---|
+| `e2e_test.go` | 追加・変更・削除・再適用、管理対象外の保全 | `e2e` |
+| `quickstart_test.go` | webhook 契約の 4 経路、名前の表現、TXT の往復、形式違反の拒否、範囲外の除外、ロックの範囲、probe と計測値 | `e2e` |
+| `token_test.go` | トークンのローテーションと失効 (SC-009) | `e2e` |
+| `scale_test.go` | 1,000 件規模での取得と適用 (SC-008) | `scale` |
+| `sidecar_test.go` | 反映の待ち合わせと後始末 (SC-001) | `e2e-sidecar` |
+
+規模とサイドカーの検証は既定では走らない。追加の環境変数が要る。
+
+```bash
+# 1,000 件規模 (検証用ゾーンを大きく書き換える)
+DPF_E2E_SCALE=1 go test ./test/e2e/... -run TestScale -v -count=1 -timeout=40m
+```
+
+| 環境変数 | 既定 | 意味 |
+|---|---|---|
+| `DPF_E2E_SCALE` | (未設定) | `1` のとき規模の検証を実行する |
+| `DPF_E2E_SCALE_RECORDS` | `1000` | 作成する件数 |
+| `DPF_E2E_READ_BUDGET` | `5s` | `GET /records` に許す時間。ExternalDNS の `--webhook-provider-read-timeout` の既定 |
+| `DPF_E2E_WRITE_BUDGET` | `10s` | `POST /records` に許す時間。同 `--webhook-provider-write-timeout` の既定 |
+| `DPF_E2E_WAIT_NAME` | (未設定) | 反映を待ち合わせる名前。サイドカー検証から渡される |
+| `DPF_E2E_WAIT_STATE` | `present` | `present` または `absent` |
+| `DPF_E2E_WAIT_BUDGET` | `5m` | 待つ時間。SC-001 の上限 |
+| `DPF_E2E_DELETE_PREFIX` | (未設定) | 残留レコードの削除に使う接頭辞。後始末から渡される |
+
+サイドカー構成の検証は kind クラスタと上流チャートを要するため、手元では
+`.github/workflows/e2e-sidecar.yml` の手順を追う形になる。ワークフローは
+README に載せた推奨 values をそのまま使う。**README を直したらワークフロー側も
+直すこと。** 食い違うと、README の値が動かないまま気付けない。
+
 テストは実際の DPF API に到達しない。`internal/dpf` は `dpf-go` のインタフェースを、
 `internal/provider` は `internal/provider/ports.go` のインタフェースを差し替えて検証する。
 
