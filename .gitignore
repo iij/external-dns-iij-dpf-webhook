@@ -30,4 +30,8 @@ Thumbs.db
 .idea/
 
 # エージェントの作業用 worktree (リポジトリ本体の一部ではない)
-.claude/worktrees/
+.claude/*
+!.claude/skills/
+!.claude/commands/
+!.claude/agents/
+!.claude/settings.json
