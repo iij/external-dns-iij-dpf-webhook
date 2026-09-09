@@ -61,7 +61,7 @@ func (p *Provider) ApplyChanges(ctx context.Context, cs ChangeSet) error {
 	for _, g := range groups {
 		zone, zoneChanges := g.zone, g.changes
 
-		// ゾーンが分かって初めて判断できる違反 (apex NS の削除) をここで見る。
+		// ゾーンが分かって初めて判断できる違反 (apex NS の変更) をここで見る。
 		if err := ValidateForZone(zoneChanges, zone); err != nil {
 			return err
 		}
