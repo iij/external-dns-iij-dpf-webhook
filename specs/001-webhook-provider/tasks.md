@@ -219,7 +219,7 @@ DNS を一切変更しない。
 - [X] T086 [P] 依存モジュールに許容するライセンスの範囲を確定し、constitution の TODO(DEPENDENCY_LICENSE_POLICY) を解消する (v1.11.0)。許容リストを明示し、GPL/AGPL/LGPL/SSPL を禁止。`make license-deps` で機械的に検査する
 - [X] T087 [P] 配布物へのライセンス表記の同梱方式を確定し、constitution の TODO(DISTRIBUTION_NOTICE) を解消する (v1.10.0)。`/licenses/` に本体と依存の本文を同梱し、OCI アノテーションを付与。`make verify-licenses` で検証する
 - [X] T090 [P] `.github/workflows/release.yml` を作成し、リリース公開時に配布イメージの SBOM を SPDX JSON (`sbom.spdx.json`) で生成してリリースページへ添付する。`.github/scripts/verify_sbom.py` で添付前に内容を検証する。`make sbom` で同じ内容を手元で再現できる
-- [ ] T088 [P] リリース時に SBOM と provenance を referrers として紐づける手順を確立する。`make image-push` (docker buildx --attest) を用いる。レジストリが必要なため、実際の付与確認はリリース環境で行う (constitution v1.10.0)
+- [X] T088 [P] リリース時に SBOM と provenance を referrers として紐づける。`.github/workflows/release.yml` が `actions/attest-sbom` と `actions/attest-build-provenance` を `push-to-registry: true` で用い、ghcr.io へ公開したイメージに紐づける。あわせて添付する SBOM ファイル自体にも署名する (constitution v1.10.0)
 - [X] T089 [P] `README.md` に SBOM の取得・確認方法と依存ライセンスの許容範囲を記載する。referrers による provenance の参照 (`cosign tree`) は T088 の完了後に追記する
 - [X] T084 `golangci-lint` の指摘と `govulncheck` の報告を解消する。抑制する場合は `nolint` に理由を併記する (constitution: Go コード品質)
 

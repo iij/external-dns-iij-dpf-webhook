@@ -72,8 +72,18 @@ make verify-aslr
 
 ## リリース
 
-リリースを公開すると `.github/workflows/release.yml` が走り、配布イメージの SBOM を
-SPDX JSON (`sbom.spdx.json`) で生成してリリースページへ添付する。
+リリースを公開すると `.github/workflows/release.yml` が走り、次を行う。
+
+1. 配布イメージをビルドし、`ghcr.io` へ公開する
+2. **公開したイメージをダイジェスト指定で走査**して SBOM を生成する
+3. SBOM の内容を検証する
+4. SBOM と provenance を**イメージのアテステーションとして紐づける** (referrers)
+5. SBOM ファイル自体にも署名する
+6. SBOM をリリースページへ添付する
+
+走査を「push 済みのイメージのダイジェスト」に対して行うのは、アテステーションの
+対象と走査の対象を同一に固定するためである。手元のイメージを走査すると、
+公開したものとは別の成果物の SBOM に署名しうる。
 
 SBOM の対象はソースツリーではなく**配布されるコンテナイメージ**である。実際に
 リンクされた依存を反映するのはイメージを走査した結果だからである
@@ -102,7 +112,40 @@ go install github.com/anchore/syft/cmd/syft@v1.51.1
 空や壊れた SBOM をそのまま添付すると、供給網の情報が「あるのに使えない」状態で
 配布される。そのため検証に失敗した場合は添付せず、ワークフローを失敗させる。
 
-### 必要なシークレット
+### アテステーション
+
+**Artifact Attestations** で署名する。鍵の保管が要らず、GitHub の OIDC ID で
+署名されるため、誰がどのワークフローで作ったものかを検証できる。
+
+| 対象 | 述語 | 置き場所 |
+|---|---|---|
+| イメージ | SBOM | レジストリの referrer + GitHub |
+| イメージ | provenance | レジストリの referrer + GitHub |
+| `sbom.spdx.json` (リリース資産) | provenance | GitHub |
+
+イメージのアテステーションは `push-to-registry: true` によりレジストリの
+**referrer** として紐づく。referrers はレジストリ上の関連付けであり、手元の
+イメージには付けられない。そのため push と同時に行う (constitution v1.10.0)。
+
+リリース資産への署名を別に作るのは、対象が異なるためである。リリースページから
+落とした `sbom.spdx.json` が本ワークフローの産物であることは、イメージの
+アテステーションからは確かめられない。
+
+### 検証
+
+```bash
+# イメージのアテステーション (SBOM と provenance)
+gh attestation verify oci://ghcr.io/iij/external-dns-iij-dpf-webhook:v0.1.0 \
+  --repo iij/external-dns-iij-dpf-webhook
+
+# リリースへ添付された SBOM ファイル
+gh attestation verify sbom.spdx.json --repo iij/external-dns-iij-dpf-webhook
+
+# referrer として何が紐づいているか
+cosign tree ghcr.io/iij/external-dns-iij-dpf-webhook:v0.1.0
+```
+
+### 必要なシークレットと権限
 
 | シークレット | 用途 | 公開後 |
 |---|---|---|
@@ -111,9 +154,14 @@ go install github.com/anchore/syft/cmd/syft@v1.51.1
 未設定でもワークフローは失敗せず警告を出す。`dpf-go` の公開後を見据えているため。
 ただし公開前は、イメージのビルドが `go mod download` の段で失敗する。
 
-> **未了**: SBOM と provenance をレジストリの referrers として紐づける件
-> (constitution v1.10.0、tasks T088) は、レジストリの決定を伴うため本ワークフローの
-> 範囲外である。`make image-push` に手順を用意してある。
+権限は `GITHUB_TOKEN` で足りる。追加のシークレットは要らない。
+
+| 権限 | 用途 |
+|---|---|
+| `contents: write` | リリースページへの添付 |
+| `packages: write` | `ghcr.io` への push |
+| `id-token: write` | Sigstore への署名 (OIDC) |
+| `attestations: write` | アテステーションの作成 |
 
 ## テスト
 

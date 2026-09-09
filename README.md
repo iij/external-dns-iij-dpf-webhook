@@ -214,9 +214,26 @@ jq -r '.packages[] | select(.name | test("miekg")) | "\(.name) \(.versionInfo)"'
 make sbom
 ```
 
-> **未対応**: SBOM と provenance をレジストリの **referrers** として紐づける件
-> (`cosign tree` で参照する形) は、レジストリの決定を伴うため未了です。
-> 手順は `make image-push` と `make image-verify` に用意してあります。
+### 署名の検証
+
+SBOM と provenance は **Artifact Attestations** で署名されています。鍵の配布は
+不要で、GitHub の OIDC ID により「どのリポジトリのどのワークフローが作ったか」を
+検証できます。
+
+```bash
+# イメージに紐づくアテステーション (SBOM と provenance)
+gh attestation verify oci://ghcr.io/iij/external-dns-iij-dpf-webhook:v0.1.0 \
+  --repo iij/external-dns-iij-dpf-webhook
+
+# リリースへ添付された SBOM ファイル
+gh attestation verify sbom.spdx.json --repo iij/external-dns-iij-dpf-webhook
+
+# referrer として何が紐づいているか
+cosign tree ghcr.io/iij/external-dns-iij-dpf-webhook:v0.1.0
+```
+
+イメージのアテステーションはレジストリの **referrer** として紐づいているため、
+イメージを取得した先でも検証できます。
 
 ### デバッグ
 
