@@ -26,9 +26,13 @@ type recordKey struct {
 // ゾーンのあるべき全体でなければならない。変更対象でないレコードも、
 // 管理対象外のレコードも、すべて含める。
 //
-// SOA とゾーン apex の NS は投入しない。一括更新 API の overwrite_soa /
-// overwrite_zone_apex_ns が既定 false であり、これらは上書き対象から外れる。
-// 投入対象から外すことで FR-029 が自前ロジックではなく API 側で担保される。
+// **SOA とゾーン apex の NS も含める。** 一括更新 API は records にこの 2 つが
+// 存在することを要求し、欠けると 400 (soa_not_found / apex_ns_not_found) で
+// 拒否する。overwrite_soa / overwrite_zone_apex_ns は「送った値を取り込むか」を
+// 決めるフラグであり、「省いてよいか」ではない (research R3)。
+//
+// この 2 つは常に false で送るため、投入した値は反映されない。反映済みの値を
+// [toOverwrite] で逐語コピーするので、いずれにしても変化しない。
 func merge(current []dpfapi.Record, cs provider.ChangeSet) ([]dpfapi.OverwriteRecordsInner, error) {
 	set := make(map[recordKey]dpfapi.OverwriteRecordsInner, len(current))
 	order := make([]recordKey, 0, len(current))
@@ -36,9 +40,6 @@ func merge(current []dpfapi.Record, cs provider.ChangeSet) ([]dpfapi.OverwriteRe
 	// 1. 反映済みの内容を土台にする。
 	for i := range current {
 		r := &current[i]
-		if excludedFromOverwrite(r.GetName(), r.GetRrtype(), current) {
-			continue
-		}
 
 		key, err := keyOf(r.GetName(), r.GetRrtype())
 		if err != nil {
@@ -107,6 +108,9 @@ func merge(current []dpfapi.Record, cs provider.ChangeSet) ([]dpfapi.OverwriteRe
 // この検査があるため、マージの誤りは「レコードが消える」ではなく
 // 「適用されない」として現れる (原則 IV の fail closed)。管理対象外レコードの
 // 逐語コピーと併せて、失敗時の影響範囲を抑える防壁になっている。
+//
+// 検査対象に例外を設けない。SOA と apex NS も投入集合に含まれるため、
+// 欠けていれば同じように止まる。DPF が 400 を返す前に、こちら側で気付ける。
 func guard(current []dpfapi.Record, set []dpfapi.OverwriteRecordsInner, cs provider.ChangeSet) error {
 	submitted := make(map[recordKey]bool, len(set))
 	for _, o := range set {
@@ -124,9 +128,6 @@ func guard(current []dpfapi.Record, set []dpfapi.OverwriteRecordsInner, cs provi
 
 	for i := range current {
 		r := &current[i]
-		if excludedFromOverwrite(r.GetName(), r.GetRrtype(), current) {
-			continue
-		}
 
 		key, err := keyOf(r.GetName(), r.GetRrtype())
 		if err != nil {
@@ -142,31 +143,6 @@ func guard(current []dpfapi.Record, set []dpfapi.OverwriteRecordsInner, cs provi
 	}
 
 	return nil
-}
-
-// excludedFromOverwrite は、そのレコードが一括更新の対象外かを報告する。
-//
-// SOA と、ゾーン apex の NS が該当する。ゾーン apex は SOA レコードの名前から
-// 判断する。ゾーンには必ず SOA が 1 つあり、その名前がゾーン名である。
-func excludedFromOverwrite(name string, rrtype dpfapi.RecordsRrtype, current []dpfapi.Record) bool {
-	if rrtype == dpfapi.RECORDSRRTYPE_SOA {
-		return true
-	}
-	if rrtype != dpfapi.RECORDSRRTYPE_NS {
-		return false
-	}
-	return name == zoneApex(current)
-}
-
-// zoneApex は SOA レコードの名前からゾーン apex を求める。
-// SOA が見つからない場合は空文字列を返し、どの NS も apex とは見なさない。
-func zoneApex(current []dpfapi.Record) string {
-	for i := range current {
-		if current[i].GetRrtype() == dpfapi.RECORDSRRTYPE_SOA {
-			return current[i].GetName()
-		}
-	}
-	return ""
 }
 
 // keyOf は DPF 側の名前と種別から突き合わせ用の鍵を作る。

@@ -35,6 +35,11 @@ A  AAAA  CNAME  TXT  SRV  NS  PTR  MX  NAPTR
 | `SOA` `CAA` `DS` `HTTPS` `SVCB` `TLSA` `ANAME` | DPF は対応するが ExternalDNS 側に表現がない。**DPF 上に存在しても変更・削除しません** |
 | `DNAME` | ExternalDNS は表現できるが DPF に対応する種別がない |
 
+`NS` は扱いますが、**ゾーン apex の `NS` (ゾーン名と同じ名前の `NS`) は対象外**です。
+作成・更新・削除のいずれも受け付けず、恒久的な失敗として返します。DPF がゾーンの
+権威 NS を上書きさせないためで、受け付けて適用しないより失敗として返す方が
+状態の食い違いを生みません。ゾーンの委任 (apex 以外の `NS`) はこの制限を受けません。
+
 ---
 
 ## ⚠ 利用前提条件

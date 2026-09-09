@@ -38,10 +38,10 @@ func ValidateFormat(cs ChangeSet) error {
 
 // ValidateForZone は、対象ゾーンが分かって初めて判断できる制約を検証する。
 //
-// 現在はゾーン apex の NS 削除のみが該当する。apex かどうかはゾーン名との
+// 現在はゾーン apex の NS の変更のみが該当する。apex かどうかはゾーン名との
 // 比較でしか決まらないため、ゾーンの解決後に実行する。
 func ValidateForZone(cs ChangeSet, zone Zone) error {
-	return validateApexNSDeletion(cs, zone)
+	return validateApexNSModification(cs, zone)
 }
 
 // Validate は両方の検証をまとめて行う。ゾーンが確定している場面で使う。
@@ -110,18 +110,23 @@ func validateSingleValue(r Record) error {
 	return nil
 }
 
-// validateApexNSDeletion はゾーン apex の NS を削除しようとしていないか確かめる。
+// validateApexNSModification はゾーン apex の NS を変更しようとしていないか確かめる。
 //
-// FR-029: DPF はゾーン名と同じ名前の NS レコードの削除を許さない。
+// FR-029: ゾーン apex の NS レコードは本サービスの管理対象外である。
+// 削除だけでなく、作成と更新も受け付けない。DPF の一括更新 API へ
+// overwrite_zone_apex_ns を常に false で送るため (contracts/dpf-client.md)、
+// 投入した apex NS の値は取り込まれない。
 //
 // 黙って読み飛ばさず失敗として返すのは、要求された変更を実行しないまま
 // 成功を返すことになるためである。それは FR-012 が禁じる「部分的に成功した
 // 状態を成功として返す」ことにあたる。
-func validateApexNSDeletion(cs ChangeSet, zone Zone) error {
-	for _, r := range cs.Delete {
+//
+// apex 以外の NS は対象外。ゾーンの委任はこの制限を受けない。
+func validateApexNSModification(cs ChangeSet, zone Zone) error {
+	for _, r := range cs.All() {
 		if r.Type == TypeNS && r.Name == zone.Name {
 			return fmt.Errorf(
-				"%w: %s NS: ゾーン apex の NS レコードは削除できません",
+				"%w: %s NS: ゾーン apex の NS レコードは変更できません",
 				ErrPermanent, r.Name)
 		}
 	}

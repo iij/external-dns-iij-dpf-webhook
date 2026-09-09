@@ -97,15 +97,36 @@ GetRecordCurrents (公開中の全件)
    それを勝手に公開してしまう。`atomic_changes` の対象は渡した集合に限られる
 2. **FR-012 (部分成功を成功としない) が原子性で構造的に保証される。** 保留状態が
    発生しないため、中断時に巻き戻す処理そのものが不要になる
-3. **FR-029 (apex NS を削除しない) と SOA の保護を API 側が担保する。**
-   `overwrite_soa` と `overwrite_zone_apex_ns` は既定 false であり、これらは
-   上書き対象から除外される。自前ロジックの正しさに依存しない
+3. **FR-029 (apex NS を変更しない) と SOA の保護を API 側が担保する。**
+   `overwrite_soa` と `overwrite_zone_apex_ns` を**常に false** で送る。
+   送った値が取り込まれないため、自前ロジックの正しさに依存しない
+
+**`overwrite_*` フラグの意味 (実機検証で判明)**: これらは「`records` に載せた
+SOA / apex NS の値を**取り込むか**」を決めるフラグであり、「`records` から
+**省いてよいか**」ではない。`records` は**ゾーンの全レコード**でなければならず、
+SOA と apex NS を含める (MUST)。
+
+当初、既定 false を「投入対象から外す」と読み違えて実装した。検証ゾーンに対する
+E2E で判明した。
+
+```json
+{"request_id":"80f978d9e2f347a68c3678647b979b1c",
+ "error_details":[{"code":"soa_not_found","attribute":"records","target":"$.records"},
+                  {"code":"apex_ns_not_found","attribute":"records","target":"$.records"}],
+ "error_type":"ParameterError","error_message":"There are invalid parameters."}
+```
+
+含めるが、フラグが false であるため投入した値は反映されない。反映済みの値を
+逐語コピーして送るので、いずれにしても変化しない。
+
+この結果、apex NS の**作成・更新も受け付けない**。受け付けて適用されないのは、
+FR-012 が禁じる「実行しなかった変更を成功として返す」ことにあたる。
 
 FR-011 (反映完了前に成功を返さない) は `SyncWait` による待ち合わせで満たす。
 
 **管理対象外レコードの保全**: 一括更新は渡さなかったレコードを削除するため、
 管理対象外のレコード (`CAA` `TLSA` `DS` `SVCB` `HTTPS` `ANAME` および対象外ゾーンの
-種別) も投入する集合に含めなければならない。読み取り型と書き込み型の設定可能項目は
+種別)、および SOA と apex NS も投入する集合に含めなければならない。読み取り型と書き込み型の設定可能項目は
 一致しており、無損失で往復できる。
 
 | `Record` (読み) | `OverwriteRecordsInner` (書き) |

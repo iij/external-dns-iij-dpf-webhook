@@ -128,7 +128,7 @@ DNS を一切変更しない。
 ### Tests for User Story 2 ⚠️ 先に書いて失敗を確認する
 
 - [X] T042 [P] [US2] `test/contract/records_post_test.go` に `POST /records` の契約テストを書く。成功時が `204 No Content` であること、空の変更セットが成功すること、末尾ドット有無の異なる名前が同一レコードとして扱われること (contracts/webhook-api.md)
-- [X] T043 [P] [US2] `internal/provider/validate_test.go` に種別ごとの検証のテストを書く。apex NS の削除要求、`CNAME` の複数値・他種別との共存、`A`/`AAAA` の名前に含まれる `_`、`MX`/`SRV` の数値範囲外がいずれも恒久的な失敗になること (FR-029〜FR-031/FR-033)
+- [X] T043 [P] [US2] `internal/provider/validate_test.go` に種別ごとの検証のテストを書く。apex NS の作成・更新・削除要求、`CNAME` の複数値・他種別との共存、`A`/`AAAA` の名前に含まれる `_`、`MX`/`SRV` の数値範囲外がいずれも恒久的な失敗になること (FR-029〜FR-031/FR-033)
 - [X] T044 [P] [US2] `internal/provider/validate_test.go` に `TXT` の検証テストを書く。character-string 1 個が 256 オクテットなら失敗、複数 character-string の合計が 255 を超えるのは成功、往復で分割位置が変わらないこと (FR-032/FR-032a)
 - [X] T045 [P] [US2] `internal/dpf/merge_test.go` にマージ規則のテストを書く。管理対象は変更後、変更セット外の管理対象は現在値、管理対象外は逐語コピー、SOA と apex NS は投入対象外になること (data-model.md 5)
 - [X] T046 [P] [US2] `internal/dpf/merge_test.go` に投入前ガードのテストを書く。変更セット外のレコードが失われる内容になったとき、適用が中止され一時的な失敗になること (data-model.md 5)

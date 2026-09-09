@@ -46,14 +46,27 @@ func TestValidate_AllowsNonApexNSDeletion(t *testing.T) {
 	}
 }
 
-// apex NS の作成・更新は削除ではないため許す。
-func TestValidate_AllowsApexNSUpdate(t *testing.T) {
+// apex NS の作成・更新も拒否する。
+//
+// DPF の `atomic_changes` は `overwrite_zone_apex_ns` を常に false で送るため、
+// 投入した apex NS は取り込まれない。受け付けておいて適用しないと、
+// 要求された変更を実行しないまま成功を返すことになり、FR-012 に反する。
+func TestValidate_RejectsApexNSModification(t *testing.T) {
 	t.Parallel()
 
-	cs := ChangeSet{UpdateTo: []Record{r("example.jp", TypeNS, 3600, "ns1.example.jp.")}}
-
-	if err := Validate(cs, zoneJP); err != nil {
-		t.Errorf("apex NS の更新が拒否された: %v", err)
+	for _, cs := range []ChangeSet{
+		{UpdateTo: []Record{r("example.jp", TypeNS, 3600, "ns1.example.jp.")}},
+		{Create: []Record{r("example.jp", TypeNS, 3600, "ns1.example.jp.")}},
+		{Delete: []Record{r("example.jp", TypeNS, 3600, "ns1.example.jp.")}},
+	} {
+		err := Validate(cs, zoneJP)
+		if err == nil {
+			t.Errorf("apex NS の変更が受け入れられた: %+v", cs)
+			continue
+		}
+		if !errors.Is(err, ErrPermanent) {
+			t.Errorf("err = %v, want ErrPermanent", err)
+		}
 	}
 }
 

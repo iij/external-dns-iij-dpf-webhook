@@ -90,15 +90,28 @@ func (c *Client) currentRecords(ctx context.Context, zone provider.Zone) ([]dpfa
 
 // atomicChanges は投入集合でゾーンを一括更新し、反映の完了を待つ。
 //
-// overwrite_soa と overwrite_zone_apex_ns は指定しない。既定の false により
-// SOA とゾーン apex の NS は上書き対象から外れ、FR-029 が API 側で担保される。
+// overwrite_soa と overwrite_zone_apex_ns は**常に false** を明示して送る。
+// これは「records に載せた SOA / apex NS の値を取り込むか」を決めるフラグで
+// あり、「records から省いてよいか」ではない。records には SOA と apex NS を
+// 含めなければならず、欠けると 400 (soa_not_found / apex_ns_not_found) になる
+// (research R3)。
+//
+// 既定値に頼らず明示するのは、既定が変わってもゾーンの権威データが
+// こちらの意図しない値で上書きされないようにするため。false のままなら
+// FR-029 は API 側で担保される。
 //
 // 一括更新は非同期ジョブとして実行される。SyncWaitContext で完了を待つことで、
 // 反映が済むまで成功を返さない (FR-011)。
 func (c *Client) atomicChanges(ctx context.Context, zone provider.Zone, set []dpfapi.OverwriteRecordsInner) error {
 	api := c.api.GetAPIClient()
 
-	body := dpfapi.PatchZoneAtomicChanges{Records: set}
+	// 常に false。詳細は上のコメントを参照。
+	overwrite := false
+	body := dpfapi.PatchZoneAtomicChanges{
+		Records:             set,
+		OverwriteSoa:        &overwrite,
+		OverwriteZoneApexNs: &overwrite,
+	}
 
 	// DPF が要求を拒んだとき、何を送ったのかが分からないと原因を追えない。
 	// 件数と先頭の 1 件だけを添える。全件を載せるとログが埋まる。

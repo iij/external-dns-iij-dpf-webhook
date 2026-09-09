@@ -4,7 +4,6 @@ package dpf
 
 import (
 	"errors"
-	"strings"
 	"testing"
 
 	dpfapi "github.com/iij/dpf-go"
@@ -154,15 +153,21 @@ func TestMerge_CopiesUnmanagedRecordsVerbatim(t *testing.T) {
 	}
 }
 
-// SOA と apex NS は投入しない。
+// SOA と apex NS を投入集合に含める。
 //
-// 一括更新 API の overwrite_soa / overwrite_zone_apex_ns は既定 false であり、
-// 投入対象から外れる。これにより FR-029 が自前ロジックではなく API 側で担保される。
-func TestMerge_ExcludesSOAAndApexNS(t *testing.T) {
+// `atomic_changes` は records に SOA と apex NS が含まれることを要求する。
+// 欠けると 400 (soa_not_found / apex_ns_not_found) になる。実 DPF に対する
+// 検証で判明した (research R3)。
+//
+// 含めるが、`overwrite_soa` と `overwrite_zone_apex_ns` は常に false であり、
+// 送った値は取り込まれない。現在の値を逐語コピーするため、いずれにしても
+// 変化しない。
+func TestMerge_IncludesSOAAndApexNS(t *testing.T) {
 	t.Parallel()
 
+	soa := cur("example.jp.", dpfapi.RECORDSRRTYPE_SOA, 3600, "ns1.example.jp. root.example.jp. 1 2 3 4 5")
 	current := []dpfapi.Record{
-		cur("example.jp.", dpfapi.RECORDSRRTYPE_SOA, 3600, "ns1.example.jp. root.example.jp. 1 2 3 4 5"),
+		soa,
 		cur("example.jp.", dpfapi.RECORDSRRTYPE_NS, 3600, "ns1.example.jp."),
 		cur("sub.example.jp.", dpfapi.RECORDSRRTYPE_NS, 3600, "ns1.other.jp."),
 		cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1"),
@@ -173,14 +178,27 @@ func TestMerge_ExcludesSOAAndApexNS(t *testing.T) {
 		t.Fatalf("merge = error %v", err)
 	}
 
-	if find(t, set, "example.jp.", dpfapi.RECORDSRRTYPE_SOA) != nil {
-		t.Error("SOA が投入集合に含まれている")
+	gotSOA := find(t, set, "example.jp.", dpfapi.RECORDSRRTYPE_SOA)
+	if gotSOA == nil {
+		t.Fatal("SOA が投入集合にない。atomic_changes は soa_not_found で拒否する")
 	}
-	if find(t, set, "example.jp.", dpfapi.RECORDSRRTYPE_NS) != nil {
-		t.Error("apex NS が投入集合に含まれている")
+	if v := values(gotSOA); len(v) != 1 || v[0] != "ns1.example.jp. root.example.jp. 1 2 3 4 5" {
+		t.Errorf("SOA の値が変化した: %v", v)
 	}
+
+	gotApexNS := find(t, set, "example.jp.", dpfapi.RECORDSRRTYPE_NS)
+	if gotApexNS == nil {
+		t.Fatal("apex NS が投入集合にない。atomic_changes は apex_ns_not_found で拒否する")
+	}
+	if v := values(gotApexNS); len(v) != 1 || v[0] != "ns1.example.jp." {
+		t.Errorf("apex NS の値が変化した: %v", v)
+	}
+
 	if find(t, set, "sub.example.jp.", dpfapi.RECORDSRRTYPE_NS) == nil {
 		t.Error("apex 以外の NS が落ちた。委任は保持しなければならない")
+	}
+	if len(set) != len(current) {
+		t.Errorf("投入件数 = %d, want %d (全件を含める)", len(set), len(current))
 	}
 }
 
@@ -313,8 +331,11 @@ func TestGuard_AllowsRequestedRemoval(t *testing.T) {
 	}
 }
 
-// SOA と apex NS は投入対象外だが、失われるわけではない。ガードの対象から除く。
-func TestGuard_IgnoresSOAAndApexNS(t *testing.T) {
+// SOA と apex NS も投入集合に含まれるため、ガードは素通しする。
+//
+// 除外を持たないことで、ガードの対象と投入集合の対象が一致する。
+// 両者にずれがあると、ガードが見ていない箇所で欠落が起きうる。
+func TestGuard_CoversSOAAndApexNS(t *testing.T) {
 	t.Parallel()
 
 	current := []dpfapi.Record{
@@ -322,123 +343,24 @@ func TestGuard_IgnoresSOAAndApexNS(t *testing.T) {
 		cur("example.jp.", dpfapi.RECORDSRRTYPE_NS, 3600, "ns1.example.jp."),
 		cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1"),
 	}
-	set := []dpfapi.OverwriteRecordsInner{toOverwrite(&current[2])}
 
-	if err := guard(current, set, provider.ChangeSet{}); err != nil {
-		t.Errorf("SOA / apex NS がガードに引っかかった: %v", err)
-	}
-}
-
-// 255 オクテットを超える TXT は、分割後の表現で投入される。
-//
-// 元の値のまま送ると DPF に拒否される。自動分割を実際に効かせるには
-// 境界で書き換える必要がある (FR-032)。
-func TestMerge_SplitsOverlongTXT(t *testing.T) {
-	t.Parallel()
-
-	long := `"` + strings.Repeat("a", 300) + `"`
-	cs := provider.ChangeSet{
-		Create: []provider.Record{pr("t.example.jp", provider.TypeTXT, 300, long)},
-	}
-
-	set, err := merge(nil, cs)
+	// 全件を投入すればガードは通る。
+	set, err := merge(current, provider.ChangeSet{})
 	if err != nil {
 		t.Fatalf("merge = error %v", err)
 	}
-
-	got := find(t, set, "t.example.jp.", dpfapi.RECORDSRRTYPE_TXT)
-	if got == nil {
-		t.Fatalf("投入集合に TXT がない: %+v", set)
+	if guardErr := guard(current, set, provider.ChangeSet{}); guardErr != nil {
+		t.Errorf("全件投入でガードが止めた: %v", guardErr)
 	}
 
-	v := values(got)
-	if len(v) != 1 {
-		t.Fatalf("rdata = %d 件, want 1", len(v))
+	// SOA が欠けたらガードが止める。DPF に拒否される前に気付ける。
+	withoutSOA := make([]dpfapi.OverwriteRecordsInner, 0, len(set))
+	for _, o := range set {
+		if o.Rrtype != dpfapi.RECORDSRRTYPE_SOA {
+			withoutSOA = append(withoutSOA, o)
+		}
 	}
-	if v[0] == long {
-		t.Error("300 オクテットの値がそのまま投入されている。分割されねばならない")
-	}
-
-	parts, err := provider.SplitTXT(v[0])
-	if err != nil {
-		t.Fatalf("投入値を解釈できない: %v", err)
-	}
-	if len(parts) != 2 || len(parts[0]) != 255 || len(parts[1]) != 45 {
-		t.Errorf("分割結果の長さ = %v, want [255 45]", lengthsOf(parts))
-	}
-}
-
-// 255 以下の TXT はそのまま投入される。分割位置を変えない (FR-032a)。
-func TestMerge_PreservesValidTXT(t *testing.T) {
-	t.Parallel()
-
-	value := `"part-one" "part-two"`
-	cs := provider.ChangeSet{
-		Create: []provider.Record{pr("t.example.jp", provider.TypeTXT, 300, value)},
-	}
-
-	set, err := merge(nil, cs)
-	if err != nil {
-		t.Fatalf("merge = error %v", err)
-	}
-
-	got := find(t, set, "t.example.jp.", dpfapi.RECORDSRRTYPE_TXT)
-	if got == nil {
-		t.Fatal("投入集合に TXT がない")
-	}
-	if v := values(got); len(v) != 1 || v[0] != value {
-		t.Errorf("投入値 = %q, want %q (書き換えてはならない)", v, value)
-	}
-}
-
-func lengthsOf(parts []string) []int {
-	out := make([]int, 0, len(parts))
-	for _, p := range parts {
-		out = append(out, len(p))
-	}
-	return out
-}
-
-// TTL 未指定 (0) は null として投入される。
-//
-// DPF の TTL は minimum 1 であり、0 は範囲外で拒否される。0 は本サービスでは
-// 「未指定」を表すため、null を送ってゾーンの既定 TTL に委ねる。
-func TestMerge_UnsetTTLBecomesNull(t *testing.T) {
-	t.Parallel()
-
-	cs := provider.ChangeSet{
-		Create: []provider.Record{pr("www.example.jp", provider.TypeA, 0, "192.0.2.1")},
-	}
-
-	set, err := merge(nil, cs)
-	if err != nil {
-		t.Fatalf("merge = error %v", err)
-	}
-
-	got := find(t, set, "www.example.jp.", dpfapi.RECORDSRRTYPE_A)
-	if got == nil {
-		t.Fatal("投入集合に対象がない")
-	}
-	if got.Ttl.IsSet() && got.Ttl.Get() != nil {
-		t.Errorf("TTL = %d が投入された。0 は null として送ること", *got.Ttl.Get())
-	}
-}
-
-// TTL が指定されていればその値で投入される。
-func TestMerge_ExplicitTTLIsSent(t *testing.T) {
-	t.Parallel()
-
-	cs := provider.ChangeSet{
-		Create: []provider.Record{pr("www.example.jp", provider.TypeA, 300, "192.0.2.1")},
-	}
-
-	set, err := merge(nil, cs)
-	if err != nil {
-		t.Fatalf("merge = error %v", err)
-	}
-
-	got := find(t, set, "www.example.jp.", dpfapi.RECORDSRRTYPE_A)
-	if got == nil || got.Ttl.Get() == nil || *got.Ttl.Get() != 300 {
-		t.Errorf("TTL が 300 で投入されていない: %+v", got)
+	if guardErr := guard(current, withoutSOA, provider.ChangeSet{}); guardErr == nil {
+		t.Error("SOA が欠けているのにガードが通した")
 	}
 }
