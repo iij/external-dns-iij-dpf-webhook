@@ -234,6 +234,12 @@ README に載せた推奨 values をそのまま使う。**README を直した�
 [quickstart.md](../specs/001-webhook-provider/quickstart.md) にまとめてある。
 **破壊的操作を含むため、検証用ゾーンでのみ実行すること。**
 
+## リファレンス
+
+設定項目、アクセストークンの供給元 (鍵の位置・認証・必要な権限)、メトリクス、
+ログ、トレース、エラーの分類、既知の制限は [reference.md](./reference.md) に
+まとめてある。
+
 ## 設計文書
 
 実装の判断根拠は `specs/001-webhook-provider/` にある。
