@@ -29,7 +29,7 @@ BUILD_ARGS = --build-arg VERSION=$(VERSION) \
              --build-arg CREATED=$(CREATED)
 
 .PHONY: all
-all: fmt-check license-check build lint vuln test
+all: fmt-check license-check license-deps build lint vuln test
 
 ## fmt-check: 整形されていないファイルがあれば失敗する (gofmt -l の出力が空であること)
 .PHONY: fmt-check
@@ -60,6 +60,30 @@ license-check:
 		echo "各ファイルの先頭に '// SPDX-License-Identifier: Apache-2.0' を追加してください"; \
 		exit 1; \
 	fi
+
+## license-deps: 依存モジュールのライセンスが許容範囲に収まるかを検証する
+## constitution v1.11.0
+##
+## 本サービスは静的リンクしたバイナリを配布する。GPL / AGPL / LGPL の依存が
+## 入ると、配布物全体にそれらの条件が及び、Apache-2.0 として配布できなくなる。
+## 混入は依存の依存として静かに起きるため、機械的に検査する。
+.PHONY: license-deps
+license-deps:
+	@command -v go-licenses >/dev/null 2>&1 || { \
+		echo "go-licenses が見つかりません:"; \
+		echo "  go install github.com/google/go-licenses/v2@latest"; \
+		exit 1; \
+	}
+	@go-licenses check ./cmd/webhook \
+		--disallowed_types=forbidden,restricted 2>/dev/null \
+		&& echo "OK: 禁止ライセンスの依存なし" \
+		|| { echo "NG: 許容範囲外のライセンスを持つ依存があります"; exit 1; }
+
+## license-report: 依存モジュールのライセンス内訳を表示する
+.PHONY: license-report
+license-report:
+	@go-licenses report ./cmd/webhook 2>/dev/null \
+		| awk -F, '{print $$3}' | sort | uniq -c | sort -rn
 
 .PHONY: build
 build:

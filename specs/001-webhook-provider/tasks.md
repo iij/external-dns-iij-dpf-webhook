@@ -216,11 +216,11 @@ DNS を一切変更しない。
 - [ ] T082 1,000 件規模のレコードを持つ検証用ゾーンで、レコード一覧の取得と適用が成立することを確認する (SC-008)
 - [ ] T083 ExternalDNS と本 provider をサイドカー構成で動かし、Ingress の作成から 5 分以内にレコードが反映されること、差分の振動が起きないことを確認する (SC-001/SC-007)
 - [X] T085 `LICENSE` (Apache-2.0) と `NOTICE` をリポジトリルートに置き、全 Go ファイルに SPDX ヘッダを付与する。`make license-check` で検証する (constitution v1.9.0)
-- [ ] T086 [P] 依存モジュールに許容するライセンスの範囲を確定し、constitution の TODO(DEPENDENCY_LICENSE_POLICY) を解消する。252 モジュールに依存しており、方針なしでは非互換なものの混入に気付けない
+- [X] T086 [P] 依存モジュールに許容するライセンスの範囲を確定し、constitution の TODO(DEPENDENCY_LICENSE_POLICY) を解消する (v1.11.0)。許容リストを明示し、GPL/AGPL/LGPL/SSPL を禁止。`make license-deps` で機械的に検査する
 - [X] T087 [P] 配布物へのライセンス表記の同梱方式を確定し、constitution の TODO(DISTRIBUTION_NOTICE) を解消する (v1.10.0)。`/licenses/` に本体と依存の本文を同梱し、OCI アノテーションを付与。`make verify-licenses` で検証する
 - [X] T090 [P] `.github/workflows/release.yml` を作成し、リリース公開時に配布イメージの SBOM を SPDX JSON (`sbom.spdx.json`) で生成してリリースページへ添付する。`.github/scripts/verify_sbom.py` で添付前に内容を検証する。`make sbom` で同じ内容を手元で再現できる
 - [ ] T088 [P] リリース時に SBOM と provenance を referrers として紐づける手順を確立する。`make image-push` (docker buildx --attest) を用いる。レジストリが必要なため、実際の付与確認はリリース環境で行う (constitution v1.10.0)
-- [ ] T089 [P] `README.md` に SBOM / provenance の参照方法 (`cosign tree` など) を記載する。`/licenses/` の構成は記載済み。SBOM のリリース手順は別途対応中のため、それが固まってから書く
+- [X] T089 [P] `README.md` に SBOM の取得・確認方法と依存ライセンスの許容範囲を記載する。referrers による provenance の参照 (`cosign tree`) は T088 の完了後に追記する
 - [X] T084 `golangci-lint` の指摘と `govulncheck` の報告を解消する。抑制する場合は `nolint` に理由を併記する (constitution: Go コード品質)
 
 ---

@@ -173,6 +173,51 @@ OTLP は `--otlp-endpoint` を指定した場合にのみ有効になります�
 
 `org.opencontainers.image.licenses` アノテーションにも `Apache-2.0` を設定しています。
 
+依存モジュールのライセンスは、次の範囲に限っています。
+
+| 許容 | 条件 |
+|---|---|
+| Apache-2.0 / MIT / BSD-2-Clause / BSD-3-Clause / ISC | 表示のみ |
+| MPL-2.0 | ソース提供義務を満たす形で同梱 |
+
+**GPL / AGPL / LGPL / SSPL の依存は含みません。** 本サービスは静的リンクしたバイナリを
+配布するため、これらが入ると配布物全体に同じ条件が及びます。
+
+### SBOM
+
+リリースを公開すると、**配布イメージの SBOM が SPDX JSON (`sbom.spdx.json`) で
+リリースページに添付されます**。
+
+```bash
+gh release download v0.1.0 --pattern sbom.spdx.json
+```
+
+SBOM の対象はソースツリーではなく**配布されるコンテナイメージ**です。実際にリンクされた
+依存を反映するのはイメージを走査した結果だからです。
+
+内容を確認する例:
+
+```bash
+# パッケージ数
+jq '.packages | length' sbom.spdx.json
+
+# ライセンスの内訳
+jq -r '.packages[].licenseConcluded' sbom.spdx.json | sort | uniq -c | sort -rn
+
+# 特定の依存を探す
+jq -r '.packages[] | select(.name | test("miekg")) | "\(.name) \(.versionInfo)"' sbom.spdx.json
+```
+
+手元で同じ内容を生成することもできます。
+
+```bash
+make sbom
+```
+
+> **未対応**: SBOM と provenance をレジストリの **referrers** として紐づける件
+> (`cosign tree` で参照する形) は、レジストリの決定を伴うため未了です。
+> 手順は `make image-push` と `make image-verify` に用意してあります。
+
 ### デバッグ
 
 イメージのベースは `scratch` で、**シェルもパッケージマネージャも含みません**。
