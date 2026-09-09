@@ -179,15 +179,34 @@ func toOverwrite(r *dpfapi.Record) dpfapi.OverwriteRecordsInner {
 	rdata := make([]dpfapi.RecordsRdataInner, len(r.GetRdata()))
 	copy(rdata, r.GetRdata())
 
-	ttl := r.GetTtl()
 	return dpfapi.OverwriteRecordsInner{
 		Name:        r.GetName(),
-		Ttl:         *dpfapi.NewNullableInt32(&ttl),
+		Ttl:         copyTTL(r),
 		Rrtype:      r.GetRrtype(),
 		Rdata:       rdata,
 		Description: r.GetDescription(),
 		Labels:      labels,
 	}
+}
+
+// copyTTL は反映済みレコードの TTL を、null かどうかを保ったまま写す。
+//
+// [dpfapi.Record.GetTtl] は null を 0 に潰す。DPF の TTL は 1〜2147483647 で
+// あり 0 は範囲外なので、そのまま送ると `out_of_range` で拒否され、ゾーン全体の
+// 適用が通らなくなる。null は「未指定」を意味し、ゾーンの既定 TTL が使われる。
+//
+// SOA とゾーン apex の NS は TTL 未指定で運用されることが多く、これらは常に
+// 投入集合に含まれるため、この経路は必ず通る。
+//
+// 値は複製する。読み取った [dpfapi.Record] の内部ポインタを投入形式と
+// 共有させない。
+func copyTTL(r *dpfapi.Record) dpfapi.NullableInt32 {
+	v, ok := r.GetTtlOk()
+	if !ok || v == nil {
+		return *dpfapi.NewNullableInt32(nil)
+	}
+	ttl := *v
+	return *dpfapi.NewNullableInt32(&ttl)
 }
 
 // normalizeValues は DPF へ送る値を整える。

@@ -28,6 +28,16 @@ func cur(name string, rrtype dpfapi.RecordsRrtype, ttl int32, values ...string) 
 	}
 }
 
+// curNullTTL は TTL が null の反映済みレコードを組み立てる。
+//
+// DPF は TTL 未指定のレコードを `"ttl": null` で返す。SOA とゾーン apex の NS が
+// これに当たる。ゾーンの既定 TTL が使われることを意味する。
+func curNullTTL(name string, rrtype dpfapi.RecordsRrtype, values ...string) dpfapi.Record {
+	r := cur(name, rrtype, 0, values...)
+	r.Ttl = *dpfapi.NewNullableInt32(nil)
+	return r
+}
+
 func pr(name string, t provider.RecordType, ttl int, values ...string) provider.Record {
 	return provider.Record{Name: dnsname.MustParse(name), Type: t, TTL: ttl, Values: values}
 }
@@ -362,5 +372,47 @@ func TestGuard_CoversSOAAndApexNS(t *testing.T) {
 	}
 	if guardErr := guard(current, withoutSOA, provider.ChangeSet{}); guardErr == nil {
 		t.Error("SOA が欠けているのにガードが通した")
+	}
+}
+
+// TTL が null のレコードは null のまま投入する。
+//
+// DPF の TTL は 1〜2147483647 であり 0 は範囲外。null を 0 に潰して送ると
+// out_of_range で拒否され、ゾーン全体の適用が通らなくなる。SOA と apex NS は
+// 未指定で運用されることが多く、この経路は必ず通る。
+func TestMerge_PreservesNullTTL(t *testing.T) {
+	t.Parallel()
+
+	current := []dpfapi.Record{
+		curNullTTL("example.jp.", dpfapi.RECORDSRRTYPE_SOA, "ns1.example.jp. root.example.jp. 1 2 3 4 5"),
+		curNullTTL("example.jp.", dpfapi.RECORDSRRTYPE_NS, "ns1.example.jp."),
+		cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1"),
+	}
+
+	set, err := merge(current, provider.ChangeSet{})
+	if err != nil {
+		t.Fatalf("merge = error %v", err)
+	}
+
+	for _, rrtype := range []dpfapi.RecordsRrtype{
+		dpfapi.RECORDSRRTYPE_SOA,
+		dpfapi.RECORDSRRTYPE_NS,
+	} {
+		got := find(t, set, "example.jp.", rrtype)
+		if got == nil {
+			t.Fatalf("%v が投入集合にない", rrtype)
+		}
+		if v := got.Ttl.Get(); v != nil {
+			t.Errorf("%v の TTL = %d, want null (0 は DPF の範囲外)", rrtype, *v)
+		}
+	}
+
+	// 値のある TTL はそのまま保つ。
+	a := find(t, set, "www.example.jp.", dpfapi.RECORDSRRTYPE_A)
+	if a == nil {
+		t.Fatal("A が投入集合にない")
+	}
+	if v := a.Ttl.Get(); v == nil || *v != 300 {
+		t.Errorf("A の TTL = %v, want 300", v)
 	}
 }

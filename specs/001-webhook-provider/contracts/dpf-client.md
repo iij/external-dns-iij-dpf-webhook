@@ -85,6 +85,10 @@
   適用を中止する (投入前ガード)
 - SOA とゾーン apex の `NS` も投入する集合に含める (MUST)。省くと API が
   `soa_not_found` / `apex_ns_not_found` で拒否する
+- 反映済みレコードの TTL が `null` の場合、`null` のまま投入する (MUST)。`0` へ
+  潰さない (MUST NOT)。DPF の TTL の許容範囲は 1〜2147483647 で、`0` は
+  `out_of_range` で拒否される。SOA と apex NS は TTL 未指定で運用されることが
+  多く、これらは常に投入集合に含まれるため必ずこの経路を通る
 - `overwrite_soa` と `overwrite_zone_apex_ns` は**常に `false`** を明示して送る
   (MUST)。`true` を送らない (MUST NOT)。これにより投入した SOA / apex NS の値は
   取り込まれず、FR-029 が API 側で担保される (research R3)
