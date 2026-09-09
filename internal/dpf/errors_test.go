@@ -114,6 +114,65 @@ func TestClassify_DoesNotLeakTokenValue(t *testing.T) {
 	}
 }
 
+// DPF が返したエラーの内容がメッセージに含まれる。
+//
+// 状態コードだけでは何が悪かったのか分からない。実環境で 400 が返ったとき、
+// error_type と error_message がなければ原因の切り分けができない。
+func TestClassify_IncludesAPIErrorDetail(t *testing.T) {
+	t.Parallel()
+
+	body := `{"request_id":"abc123","error_type":"ParameterError","error_message":"records は必須です"}`
+	err := wrapAPIError(
+		&http.Response{StatusCode: http.StatusBadRequest},
+		&dpfapi.GenericOpenAPIError{},
+		[]byte(body),
+	)
+
+	got := Classify(err).Error()
+	for _, want := range []string{"ParameterError", "records は必須です", "abc123"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("エラーメッセージに %q が含まれない: %v", want, got)
+		}
+	}
+}
+
+// 応答本文を切り詰めない。
+//
+// DPF のエラー応答は request_id を含み、サポートへの問い合わせのキーになる。
+// 長さで切ると、末尾にある情報が失われて問い合わせができなくなる。
+func TestClassify_DoesNotTruncateAPIErrorBody(t *testing.T) {
+	t.Parallel()
+
+	// request_id が末尾にある長い応答を模す。
+	long := `{"error_type":"ParameterError","error_message":"` +
+		strings.Repeat("詳細な説明", 200) + `","request_id":"tail-request-id"}`
+
+	err := wrapAPIError(
+		&http.Response{StatusCode: http.StatusBadRequest},
+		&dpfapi.GenericOpenAPIError{},
+		[]byte(long),
+	)
+
+	got := Classify(err).Error()
+	if !strings.Contains(got, "tail-request-id") {
+		t.Errorf("末尾の request_id が失われた。問い合わせができなくなる (長さ %d)", len(got))
+	}
+	if strings.Contains(got, "以下略") {
+		t.Error("応答本文が切り詰められている")
+	}
+}
+
+// 応答本文がない場合も、状態コードは失われない。
+func TestClassify_NoBodyStillReportsStatus(t *testing.T) {
+	t.Parallel()
+
+	err := wrapAPIError(&http.Response{StatusCode: http.StatusForbidden}, &dpfapi.GenericOpenAPIError{}, nil)
+
+	if got := Classify(err).Error(); !strings.Contains(got, "403") {
+		t.Errorf("状態コードが失われた: %v", got)
+	}
+}
+
 // 分類できないエラーは一時的に倒す。
 //
 // 恒久的に倒すと ExternalDNS が再試行を諦め、実際には復旧しうる障害で

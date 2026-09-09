@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/iij/dpf-go/utils"
 
@@ -27,26 +28,65 @@ import (
 type apiError struct {
 	status int
 	err    error
+
+	// detail は DPF が返した応答本文。**全文を保持する。**
+	//
+	// dpf-go の GenericOpenAPIError は Error() に状態コードの文字列しか
+	// 載せないため、これがないと 400 が返った理由が分からない。
+	// また DPF のエラー応答は `request_id` を含み、サポートへの問い合わせに
+	// 必要になる。切り詰めるとその手段が失われる。
+	detail string
 }
 
 func (e *apiError) Error() string {
-	return fmt.Sprintf("dpf api: status %d: %v", e.status, e.err)
+	if e.detail == "" {
+		return fmt.Sprintf("dpf api: status %d: %v", e.status, e.err)
+	}
+	return fmt.Sprintf("dpf api: status %d: %v: %s", e.status, e.err, e.detail)
 }
 
 func (e *apiError) Unwrap() error { return e.err }
+
+// apiBody は応答本文を取り出せるエラー。dpf.GenericOpenAPIError が満たす。
+type apiBody interface {
+	Body() []byte
+}
 
 // wrapAPIError は DPF API の応答とエラーを apiError に包む。
 //
 // resp が nil の場合 (接続自体が成立しなかった場合) は err をそのまま返す。
 // 状態コードが取れないため、分類はネットワーク層のエラーとして行われる。
-func wrapAPIError(resp *http.Response, err error) error {
+//
+// body を明示的に渡せる。dpf-go が本文を保持していない経路 (SyncWait の
+// ジョブ失敗など) でも内容を残せるようにするため。省略した場合は err から
+// 取り出す。
+func wrapAPIError(resp *http.Response, err error, body ...[]byte) error {
 	if err == nil {
 		return nil
 	}
 	if resp == nil {
 		return err
 	}
-	return &apiError{status: resp.StatusCode, err: err}
+
+	var raw []byte
+	switch {
+	case len(body) > 0 && len(body[0]) > 0:
+		raw = body[0]
+	default:
+		var b apiBody
+		if errors.As(err, &b) {
+			raw = b.Body()
+		}
+	}
+
+	// **本文は切り詰めない。** DPF のエラー応答は `request_id` を含み、
+	// これがサポートへの問い合わせのキーになる。長さで切ると、問い合わせに
+	// 必要な情報が失われる。エラー応答自体は短く、ログを埋めることはない。
+	return &apiError{
+		status: resp.StatusCode,
+		err:    err,
+		detail: strings.TrimSpace(string(raw)),
+	}
 }
 
 // Classify は err を一時的な障害と恒久的な障害のいずれかに分類する。

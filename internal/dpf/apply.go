@@ -100,6 +100,19 @@ func (c *Client) atomicChanges(ctx context.Context, zone provider.Zone, set []dp
 
 	body := dpfapi.PatchZoneAtomicChanges{Records: set}
 
+	// DPF が要求を拒んだとき、何を送ったのかが分からないと原因を追えない。
+	// 件数と先頭の 1 件だけを添える。全件を載せるとログが埋まる。
+	summary := fmt.Sprintf("records=%d", len(set))
+	if len(set) > 0 {
+		first := set[0]
+		ttl := "null"
+		if v := first.Ttl.Get(); v != nil {
+			ttl = fmt.Sprintf("%d", *v)
+		}
+		summary = fmt.Sprintf("%s first=%q %v ttl=%s rdata=%d",
+			summary, first.Name, first.Rrtype, ttl, len(first.Rdata))
+	}
+
 	err := c.observe(ctx, "atomic_changes", func(ctx context.Context) error {
 		return c.api.Operation(ctx, func() error {
 			//nolint:bodyclose // dpf-go が Body を閉じたうえで返すため
@@ -120,7 +133,7 @@ func (c *Client) atomicChanges(ctx context.Context, zone provider.Zone, set []dp
 		})
 	})
 	if err != nil {
-		return Classify(fmt.Errorf("ゾーン %s の適用に失敗: %w", zone.Name, err))
+		return Classify(fmt.Errorf("ゾーン %s の適用に失敗 (%s): %w", zone.Name, summary, err))
 	}
 
 	return nil
