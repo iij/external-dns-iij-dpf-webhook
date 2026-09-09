@@ -1,0 +1,121 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# 脆弱性検査を定期的に実行する。
+#
+# constitution「開発ワークフローと品質ゲート」: govulncheck とコンテナイメージの
+# 脆弱性スキャンは、PR 時に加えて定期的に実行すること (MUST)。
+#
+# **コード変更がなくても新たな脆弱性は公開される。** PR 時の実行だけでは、
+# 最後のマージ以降に公開された脆弱性を検出できない。稼働中の配布物が
+# 影響を受けていることに気付けないまま時間が過ぎる。
+name: scheduled-scan
+
+on:
+  schedule:
+    # 毎日 02:00 UTC (JST 11:00)。日本時間の業務時間帯に結果が出るようにする。
+    - cron: "0 2 * * *"
+
+  # 手動でも回せるようにしておく。
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # 検出時に issue を立てる。
+  issues: write
+
+env:
+  # Makefile および ci.yml と同じ値。
+  GOVULNCHECK_VERSION: v1.7.0
+  IMAGE_NAME: external-dns-iij-dpf-webhook
+
+jobs:
+  govulncheck:
+    name: 依存の脆弱性を検査する
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 非公開モジュールの取得を設定する
+        env:
+          MODULE_TOKEN: ${{ secrets.MODULE_TOKEN }}
+        run: |
+          echo "GOPRIVATE=github.com/iij/dpf-go" >> "$GITHUB_ENV"
+          if [ -z "$MODULE_TOKEN" ]; then
+            echo "::warning::MODULE_TOKEN が未設定です"
+            exit 0
+          fi
+          git config --global \
+            url."https://${MODULE_TOKEN}@github.com/iij/".insteadOf \
+            "https://github.com/iij/"
+
+      - name: govulncheck を実行する
+        # バージョンを固定するため自前で導入する (constitution v1.3.0)。
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+          make vuln
+
+  image:
+    name: 配布イメージの脆弱性を走査する
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: buildx を用意する
+        uses: docker/setup-buildx-action@v4.3.0
+
+      - name: イメージをビルドする
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: .
+          file: build/Containerfile
+          load: true
+          push: false
+          tags: ${{ env.IMAGE_NAME }}:scheduled
+          secrets: |
+            gh_token=${{ secrets.MODULE_TOKEN }}
+
+      - name: 脆弱性を走査する
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:scheduled
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+  # 検出されたら issue で知らせる。定期実行の失敗は誰も見ていないため、
+  # ワークフローが赤くなるだけでは気付かれない。
+  notify:
+    name: 検出を通知する
+    runs-on: ubuntu-latest
+    needs: [govulncheck, image]
+    if: failure()
+
+    steps:
+      - name: issue を立てる
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="定期スキャンで脆弱性を検出しました"
+
+          # 未解決の同種 issue があれば重複させない。毎日立て続けると
+          # 通知が埋もれ、かえって気付かれなくなる。
+          existing=$(gh issue list --state open --label security --search "$title in:title" \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "再検出しました: $RUN_URL"
+            exit 0
+          fi
+
+          gh issue create \
+            --title "$title" \
+            --label security \
+            --body "$(printf '定期スキャンで脆弱性が検出されました。\n\n実行結果: %s\n\nコード変更がなくても新たな脆弱性は公開されます。内容を確認し、依存の更新または影響評価を行ってください。\n' "$RUN_URL")"

@@ -9,8 +9,17 @@ IMAGE ?= external-dns-iij-dpf-webhook
 # リリースへ添付する SBOM。.github/workflows/release.yml と同じ内容を
 # ローカルでも再現できるようにしておく。
 SBOM_FILE ?= sbom.spdx.json
-# CI と同じ版に固定する。走査結果が手元と CI で食い違わないようにするため。
+# ツールのバージョンはここで一元管理する。
+#
+# constitution v1.3.0: CI で用いる Go、golangci-lint、govulncheck のバージョンを
+# 固定すること (MUST)。ツールの暗黙のバージョン更新によって、同一コードの
+# 判定結果が変わる状態にしないこと (MUST NOT)。
+#
+# .github/workflows/ci.yml は同じ値を参照する。片方だけ更新しないこと。
 SYFT_VERSION ?= v1.51.1
+GOLANGCI_LINT_VERSION ?= v2.13.2
+GOVULNCHECK_VERSION ?= v1.7.0
+GO_LICENSES_VERSION ?= latest
 # REGISTRY_IMAGE はレジストリへ push する際の完全な参照。
 # SBOM と provenance は referrers としてレジストリに紐づくため、push が前提になる。
 REGISTRY_IMAGE ?= $(IMAGE)
@@ -30,6 +39,16 @@ BUILD_ARGS = --build-arg VERSION=$(VERSION) \
 
 .PHONY: all
 all: fmt-check license-check license-deps build lint vuln test
+
+## tools: 固定したバージョンの開発ツールを導入する
+##
+## CI と同じ版を入れる。手元と CI で判定結果が食い違わないようにするため。
+.PHONY: tools
+tools:
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+	go install github.com/google/go-licenses/v2@$(GO_LICENSES_VERSION)
+	go install github.com/anchore/syft/cmd/syft@$(SYFT_VERSION)
 
 ## fmt-check: 整形されていないファイルがあれば失敗する (gofmt -l の出力が空であること)
 .PHONY: fmt-check
@@ -70,8 +89,7 @@ license-check:
 .PHONY: license-deps
 license-deps:
 	@command -v go-licenses >/dev/null 2>&1 || { \
-		echo "go-licenses が見つかりません:"; \
-		echo "  go install github.com/google/go-licenses/v2@latest"; \
+		echo "go-licenses が見つかりません。'make tools' を実行してください"; \
 		exit 1; \
 	}
 	@go-licenses check ./cmd/webhook \
@@ -182,13 +200,66 @@ image-verify:
 .PHONY: sbom
 sbom: image
 	@command -v syft >/dev/null 2>&1 || { \
-		echo "syft が見つかりません:"; \
-		echo "  go install github.com/anchore/syft/cmd/syft@$(SYFT_VERSION)"; \
+		echo "syft が見つかりません。'make tools' を実行してください"; \
 		exit 1; \
 	}
 	syft scan $(CONTAINER_SCHEME):localhost/$(IMAGE):latest \
 		-o spdx-json=$(SBOM_FILE) -q
 	python3 .github/scripts/verify_sbom.py $(SBOM_FILE)
+
+## verify-defaults: 既定設定が拒否側であることをイメージ上で検証する
+## constitution v1.2.0 (原則 VI) / 開発ワークフローと品質ゲート
+##
+## 単体テストでも同じ性質を検証しているが、ここでは配布される成果物そのものが
+## その性質を持つことを確かめる。ビルドや設定の受け渡しで崩れうるため。
+.PHONY: verify-defaults
+verify-defaults: image
+	@tmp=$$(mktemp -d); chmod 755 "$$tmp"; \
+	echo dummy-token > "$$tmp/token"; chmod 644 "$$tmp/token"; \
+	trap "rm -rf $$tmp" EXIT; \
+	\
+	echo "--- 必須設定なしでは起動しない (FR-017) ---"; \
+	if $(CONTAINER_TOOL) run --rm $(IMAGE) >/dev/null 2>&1; then \
+		echo "NG: トークン供給元なしで起動に成功した"; exit 1; \
+	fi; \
+	echo "OK: 異常終了した"; \
+	\
+	echo "--- 解釈できない設定では起動しない (FR-018) ---"; \
+	if $(CONTAINER_TOOL) run --rm -v "$$tmp:/secrets:Z" $(IMAGE) \
+		--dpf-token-file /secrets/token --domain-filter 'not..a..name' >/dev/null 2>&1; then \
+		echo "NG: 妥当でない domain-filter で起動に成功した"; exit 1; \
+	fi; \
+	echo "OK: 異常終了した"; \
+	\
+	echo "--- トークンを引数で渡す経路がない (constitution v1.8.0) ---"; \
+	if $(CONTAINER_TOOL) run --rm $(IMAGE) --dpf-token secret >/dev/null 2>&1; then \
+		echo "NG: --dpf-token が受け付けられた"; exit 1; \
+	fi; \
+	echo "OK: 拒否された"; \
+	\
+	echo "--- domain-filter 未設定なら管理対象が空 (FR-002) ---"; \
+	cid=$$($(CONTAINER_TOOL) run -d --rm -v "$$tmp:/secrets:Z" -p 18899:8888 $(IMAGE) \
+		--dpf-token-file /secrets/token --provider-addr 0.0.0.0:8888); \
+	sleep 3; \
+	body=$$(curl -s -H 'Accept: application/external.dns.webhook+json;version=1' \
+		http://127.0.0.1:18899/ || echo ""); \
+	$(CONTAINER_TOOL) stop "$$cid" >/dev/null 2>&1 || true; \
+	case "$$body" in \
+		*'"filters":[]'*) echo "OK: 空の範囲が返った" ;; \
+		*) echo "NG: 応答が空の範囲ではない: $$body"; exit 1 ;; \
+	esac; \
+	\
+	echo "--- provider ポートは既定でループバックのみ (原則 VI) ---"; \
+	cid=$$($(CONTAINER_TOOL) run -d --rm -v "$$tmp:/secrets:Z" -p 18898:8888 $(IMAGE) \
+		--dpf-token-file /secrets/token); \
+	sleep 3; \
+	reachable=0; \
+	curl -s -m 2 -o /dev/null http://127.0.0.1:18898/ && reachable=1; \
+	$(CONTAINER_TOOL) stop "$$cid" >/dev/null 2>&1 || true; \
+	if [ "$$reachable" -eq 1 ]; then \
+		echo "NG: 既定で Pod 外から provider ポートへ到達できた"; exit 1; \
+	fi; \
+	echo "OK: 到達しなかった"
 
 ## verify-licenses: イメージにライセンス本文と OCI アノテーションがあることを検証する
 ## constitution v1.10.0

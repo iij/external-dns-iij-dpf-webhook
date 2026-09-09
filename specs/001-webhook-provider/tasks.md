@@ -34,9 +34,9 @@ plan.md の構造に従う。`cmd/webhook/`、`internal/`、`test/`、`build/` �
 - [X] T003 [P] `.golangci.yml` を作成し、有効にする linter とそのバージョンを固定する。ローカルと CI が同一設定で動くこと (constitution: Go コード品質)
 - [X] T004 [P] `Makefile` に `fmt-check` / `build` / `lint` / `vuln` / `test` ターゲットを定義する。`fmt-check` は `gofmt -l ./...` の出力が空でないとき失敗すること
 - [X] T005 [P] `build/Containerfile` を作成する。alpine ビルダー段で `CGO_ENABLED=1 -buildmode=pie -tags 'netgo osusergo' -ldflags '-s -w -linkmode external -extldflags "-static-pie"'`、最終段は `scratch` に CA 証明書とバイナリのみを置き `USER 65532:65532` とする (research R1/R2)
-- [ ] T006 **(保留: CI は後回しとする方針)** [P] `.github/workflows/ci.yml` に品質ゲートを定義する。`gofmt -l` / `go build` / `golangci-lint run` / `govulncheck ./...` / `go test ./...` / イメージビルド / 脆弱性スキャンを実行し、Go・golangci-lint・govulncheck のバージョンを固定する
-- [ ] T007 **(保留: CI は後回しとする方針)** [P] `.github/workflows/ci.yml` に配布バイナリの ASLR 検証ステップを追加する。ELF Type が `DYN` であり `PT_INTERP` を持たないことを確認して失敗させる (constitution v1.6.0)
-- [ ] T008 **(保留: CI は後回しとする方針)** [P] `.github/workflows/scheduled.yml` を作成し、`govulncheck` とイメージ脆弱性スキャンを定期実行する (constitution: コード変更がなくても新規脆弱性は公開されるため)
+- [X] T006 [P] `.github/workflows/ci.yml` に品質ゲートを定義する。`gofmt -l` / `go build` / `golangci-lint run` / `govulncheck ./...` / `go test ./...` / イメージビルド / 脆弱性スキャンを実行し、Go・golangci-lint・govulncheck のバージョンを固定する
+- [X] T007 [P] `.github/workflows/ci.yml` に配布バイナリの ASLR 検証ステップを追加する。ELF Type が `DYN` であり `PT_INTERP` を持たないことを確認して失敗させる (constitution v1.6.0)
+- [X] T008 [P] `.github/workflows/scheduled.yml` を作成し、`govulncheck` とイメージ脆弱性スキャンを定期実行する (constitution: コード変更がなくても新規脆弱性は公開されるため)
 - [X] T009 [P] `docs/development.md` に、`dpf-go` が公開されるまでの `GOPRIVATE=github.com/iij/dpf-go` 設定と、CI での認証付きモジュール取得手順を記載する (research R10)
 
 **Checkpoint**: 空のプロジェクトで全 CI ゲートが通る状態

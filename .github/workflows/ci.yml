@@ -1,0 +1,188 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# constitution「開発ワークフローと品質ゲート」が定める項目を、マージの条件として
+# 実行する。ローカルの `make all` と同じ内容を同じツールで走らせる。
+#
+# ツールのバージョンはすべて固定する。暗黙の更新で同一コミットの判定結果が
+# 変わる状態にしない (constitution v1.3.0)。
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# 読み取りのみ。CI が成果物を書き換える必要はない。
+permissions:
+  contents: read
+
+env:
+  # Makefile と同じ値。片方だけ更新すると手元と CI で判定結果が食い違う。
+  GOLANGCI_LINT_VERSION: v2.13.2
+  GOVULNCHECK_VERSION: v1.7.0
+  IMAGE_NAME: external-dns-iij-dpf-webhook
+
+jobs:
+  # Go のコード品質。イメージを要さないため独立して速く回る。
+  go:
+    name: Go の品質ゲート
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Go を用意する
+        uses: actions/setup-go@v7.0.0
+        with:
+          # go.mod の go ディレクティブに従う。定義を 1 箇所に保つ。
+          go-version-file: go.mod
+          cache: true
+
+      - name: 非公開モジュールの取得を設定する
+        env:
+          MODULE_TOKEN: ${{ secrets.MODULE_TOKEN }}
+        run: |
+          # github.com/iij/dpf-go は公開されるまで非公開であり、取得に認証が要る。
+          # GITHUB_TOKEN は当該リポジトリにしか及ばない。
+          echo "GOPRIVATE=github.com/iij/dpf-go" >> "$GITHUB_ENV"
+
+          if [ -z "$MODULE_TOKEN" ]; then
+            echo "::warning::MODULE_TOKEN が未設定です。github.com/iij/dpf-go が非公開の間は依存の取得に失敗します"
+            exit 0
+          fi
+          git config --global \
+            url."https://${MODULE_TOKEN}@github.com/iij/".insteadOf \
+            "https://github.com/iij/"
+
+      - name: 整形されていることを確認する
+        run: make fmt-check
+
+      - name: 全 Go ファイルに SPDX ヘッダがあることを確認する
+        run: make license-check
+
+      - name: ビルドする
+        run: make build
+
+      - name: 静的解析を実行する
+        uses: golangci/golangci-lint-action@v9.3.0
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          # 設定はリポジトリの .golangci.yml を使う。ローカルと同一にするため。
+          args: --timeout=5m
+
+      - name: テストを実行する
+        # 契約テスト・統合テスト・単体テストをすべて含む。
+        run: make test
+
+  # 脆弱性検査。到達可能な既知脆弱性があればマージを止める。
+  vuln:
+    name: 脆弱性検査
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 非公開モジュールの取得を設定する
+        env:
+          MODULE_TOKEN: ${{ secrets.MODULE_TOKEN }}
+        run: |
+          echo "GOPRIVATE=github.com/iij/dpf-go" >> "$GITHUB_ENV"
+          if [ -z "$MODULE_TOKEN" ]; then
+            echo "::warning::MODULE_TOKEN が未設定です"
+            exit 0
+          fi
+          git config --global \
+            url."https://${MODULE_TOKEN}@github.com/iij/".insteadOf \
+            "https://github.com/iij/"
+
+      - name: govulncheck を実行する
+        # golang/govulncheck-action はバージョンを指定できない。constitution v1.3.0 が
+        # ツールのバージョン固定を求めるため、自前で導入して make 経由で実行する。
+        # 到達可能な脆弱性のみが対象であり、呼び出していないものは止めない。
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+          make vuln
+
+      - name: 依存ライセンスが許容範囲に収まることを確認する
+        run: |
+          go install github.com/google/go-licenses/v2@latest
+          make license-deps
+
+  # 配布成果物の検証。イメージのビルドを伴うため分ける。
+  image:
+    name: 配布イメージの検証
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: 非公開モジュールの取得手段を確認する
+        env:
+          MODULE_TOKEN: ${{ secrets.MODULE_TOKEN }}
+        run: |
+          if [ -z "$MODULE_TOKEN" ]; then
+            echo "::warning::MODULE_TOKEN が未設定です。イメージのビルドに失敗します"
+          fi
+          # Makefile は gh auth token を読むため、シークレットを渡しておく。
+          printf '%s' "$MODULE_TOKEN" > /tmp/module_token
+          chmod 600 /tmp/module_token
+
+      - name: buildx を用意する
+        uses: docker/setup-buildx-action@v4.3.0
+
+      - name: イメージをビルドする
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: .
+          file: build/Containerfile
+          load: true
+          push: false
+          tags: ${{ env.IMAGE_NAME }}:ci
+          secrets: |
+            gh_token=${{ secrets.MODULE_TOKEN }}
+
+      - name: ASLR が有効であることを確認する
+        # constitution v1.6.0: ASLR が有効であることを CI で検証すること (MUST)
+        # research R1: CGO_ENABLED=0 -buildmode=pie は PT_INTERP を持ち scratch で起動しない
+        env:
+          IMAGE_REF: ${{ env.IMAGE_NAME }}:ci
+        run: |
+          bin=$(mktemp)
+          cid=$(docker create "$IMAGE_REF")
+          docker cp "$cid:/webhook" "$bin" >/dev/null
+          docker rm "$cid" >/dev/null
+
+          # readelf の出力はロケールで翻訳される。C に固定する。
+          type=$(LC_ALL=C readelf -h "$bin" | awk '/^ *Type:/ {print $2}')
+          if [ "$type" != "DYN" ]; then
+            echo "::error::ELF Type が $type です (PIE ではないため ASLR が無効)"
+            exit 1
+          fi
+          if LC_ALL=C readelf -l "$bin" | grep -q INTERP; then
+            echo "::error::PT_INTERP を持つため scratch では起動しません"
+            exit 1
+          fi
+          echo "OK: static PIE (ELF Type=DYN, PT_INTERP なし)"
+
+      - name: ライセンスの同梱と OCI アノテーションを確認する
+        # constitution v1.10.0
+        run: make verify-licenses IMAGE=${{ env.IMAGE_NAME }}:ci CONTAINER_TOOL=docker
+
+      - name: 既定設定が拒否側であることを確認する
+        # constitution 原則 VI。配布される成果物そのものが既定拒否であることを見る。
+        run: make verify-defaults IMAGE=${{ env.IMAGE_NAME }}:ci CONTAINER_TOOL=docker
+
+      - name: イメージの脆弱性を走査する
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:ci
+          format: table
+          # 深刻なものだけを止める。情報提供目的の指摘でマージを妨げない。
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
