@@ -1,0 +1,138 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# リリース時に配布イメージの SBOM を生成し、リリースページへ添付する。
+#
+# SBOM の対象は「配布されるコンテナイメージ」である。ソースツリーではない。
+# constitution v1.10.0 が配布形態をコンテナイメージのみと定めており、
+# 実際にリンクされた依存を反映するのはイメージを走査した結果だからである。
+#
+# 本ワークフローが担うのはリリースページへの添付までである。SBOM と provenance を
+# レジストリの referrers として紐づける件 (constitution v1.10.0、tasks T088) は
+# レジストリの決定を伴うため別途扱う。
+name: release
+
+on:
+  # リリースが公開された時点で走らせる。
+  release:
+    types: [published]
+
+  # 生成し直したい場合に手で回せるようにしておく。
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "SBOM を添付するリリースのタグ (例: v0.1.0)"
+        required: true
+        type: string
+
+# リリースへの添付に書き込み権限が要る。それ以外は与えない。
+permissions:
+  contents: write
+
+env:
+  # constitution「開発ワークフローと品質ゲート」: CI で用いるツールの
+  # バージョンを固定する。暗黙の更新で同一コミットの結果が変わらないようにする。
+  SYFT_VERSION: v1.51.1
+  IMAGE_NAME: external-dns-iij-dpf-webhook
+  SBOM_FILE: sbom.spdx.json
+
+jobs:
+  sbom:
+    name: SBOM を生成してリリースへ添付する
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 対象のタグを決める
+        id: target
+        env:
+          # 入力はシェルの外で受け取る。タグ名を直接展開すると
+          # 任意のコマンドを差し込まれる余地が生まれる。
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${EVENT_TAG:-$INPUT_TAG}"
+          if [ -z "$tag" ]; then
+            echo "::error::対象のタグを決められません"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: ソースを取得する
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ steps.target.outputs.tag }}
+          fetch-depth: 1
+
+      - name: 非公開モジュールの取得手段を確認する
+        env:
+          MODULE_TOKEN: ${{ secrets.MODULE_TOKEN }}
+        run: |
+          # github.com/iij/dpf-go は公開されるまで非公開であり、取得に認証が要る。
+          # GITHUB_TOKEN は当該リポジトリにしか及ばないため、別の資格情報が必要になる。
+          #
+          # 公開後は不要になるため、欠けていても失敗させない。ただし気付けるよう
+          # 明示的に知らせる。黙って go mod download の段で失敗すると原因が分かりにくい。
+          if [ -z "$MODULE_TOKEN" ]; then
+            echo "::warning::MODULE_TOKEN が未設定です。github.com/iij/dpf-go が非公開の間はイメージのビルドに失敗します"
+            {
+              echo "### MODULE_TOKEN が未設定です"
+              echo
+              echo '`github.com/iij/dpf-go` の公開までは、同リポジトリを読める資格情報を'
+              echo 'リポジトリシークレット `MODULE_TOKEN` に設定してください。'
+              echo '`GITHUB_TOKEN` は当該リポジトリにしか及ばないため使えません。'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: buildx を用意する
+        uses: docker/setup-buildx-action@v4.3.0
+
+      - name: 配布イメージをビルドする
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: .
+          file: build/Containerfile
+          # レジストリへは push しない。SBOM の走査対象として手元に載せるだけ。
+          load: true
+          push: false
+          tags: ${{ env.IMAGE_NAME }}:${{ steps.target.outputs.tag }}
+          build-args: |
+            VERSION=${{ steps.target.outputs.tag }}
+            REVISION=${{ github.sha }}
+          secrets: |
+            gh_token=${{ secrets.MODULE_TOKEN }}
+
+      - name: SBOM を SPDX JSON で生成する
+        uses: anchore/sbom-action@v0.24.2
+        with:
+          image: ${{ env.IMAGE_NAME }}:${{ steps.target.outputs.tag }}
+          format: spdx-json
+          output-file: ${{ env.SBOM_FILE }}
+          syft-version: ${{ env.SYFT_VERSION }}
+          # 添付は後段で明示的に行う。イベント種別によらず同じ経路で
+          # 扱えるようにするため。
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: SBOM の内容を検証する
+        run: |
+          # 空や壊れた SBOM をそのまま添付すると、供給網の情報が
+          # 「あるのに使えない」状態で配布される。添付前に確かめる。
+          if [ ! -s "$SBOM_FILE" ]; then
+            echo "::error::$SBOM_FILE が生成されていません"
+            exit 1
+          fi
+          python3 .github/scripts/verify_sbom.py "$SBOM_FILE"
+
+      - name: SBOM をリリースへ添付する
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.target.outputs.tag }}
+        run: |
+          # --clobber により、生成し直して再実行しても添付を差し替えられる。
+          gh release upload "$TAG" "$SBOM_FILE" --clobber
+
+          {
+            echo "### SBOM を添付しました"
+            echo
+            echo "- タグ: \`$TAG\`"
+            echo "- ファイル: \`$SBOM_FILE\` ($(wc -c < "$SBOM_FILE") バイト)"
+          } >> "$GITHUB_STEP_SUMMARY"

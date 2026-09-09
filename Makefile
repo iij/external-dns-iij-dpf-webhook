@@ -5,10 +5,19 @@
 export GOPRIVATE ?= github.com/iij/dpf-go
 
 IMAGE ?= external-dns-iij-dpf-webhook
+
+# リリースへ添付する SBOM。.github/workflows/release.yml と同じ内容を
+# ローカルでも再現できるようにしておく。
+SBOM_FILE ?= sbom.spdx.json
+# CI と同じ版に固定する。走査結果が手元と CI で食い違わないようにするため。
+SYFT_VERSION ?= v1.51.1
 # REGISTRY_IMAGE はレジストリへ push する際の完全な参照。
 # SBOM と provenance は referrers としてレジストリに紐づくため、push が前提になる。
 REGISTRY_IMAGE ?= $(IMAGE)
 CONTAINER_TOOL ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+# syft に渡す走査元の指定 (podman / docker)。CONTAINER_TOOL は絶対パスに
+# なるため、スキーマ名としては使えない。
+CONTAINER_SCHEME ?= $(notdir $(CONTAINER_TOOL))
 
 # OCI アノテーションに埋める来歴情報。
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -138,6 +147,24 @@ image-verify:
 		--certificate-identity-regexp='.*' \
 		--certificate-oidc-issuer-regexp='.*'
 	cosign tree $(REGISTRY_IMAGE)
+
+## sbom: 配布イメージの SBOM を SPDX JSON で生成し、内容を検証する
+##
+## 対象はソースツリーではなく配布されるイメージである。実際にリンクされた
+## 依存を反映するのはイメージを走査した結果だからである。
+##
+## リリース時の自動生成と添付は .github/workflows/release.yml が行う。
+## 本ターゲットはその内容を手元で確かめるためのもの。
+.PHONY: sbom
+sbom: image
+	@command -v syft >/dev/null 2>&1 || { \
+		echo "syft が見つかりません:"; \
+		echo "  go install github.com/anchore/syft/cmd/syft@$(SYFT_VERSION)"; \
+		exit 1; \
+	}
+	syft scan $(CONTAINER_SCHEME):localhost/$(IMAGE):latest \
+		-o spdx-json=$(SBOM_FILE) -q
+	python3 .github/scripts/verify_sbom.py $(SBOM_FILE)
 
 ## verify-licenses: イメージにライセンス本文と OCI アノテーションがあることを検証する
 ## constitution v1.10.0

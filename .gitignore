@@ -1,6 +1,8 @@
 # Build output
 /bin/
 /dist/
+# make sbom / リリースワークフローの生成物
+/sbom.spdx.json
 *.exe
 *.test
 *.out
