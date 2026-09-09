@@ -147,9 +147,11 @@ cosign tree ghcr.io/iij/external-dns-iij-dpf-webhook:v0.1.0
 
 ### 必要なシークレットと権限
 
-| シークレット | 用途 | 公開後 |
-|---|---|---|
-| `MODULE_TOKEN` | `github.com/iij/dpf-go` の取得。`GITHUB_TOKEN` は当該リポジトリにしか及ばないため使えない | 不要になる |
+| 種別 | 名前 | 用途 | 公開後 |
+|---|---|---|---|
+| シークレット | `MODULE_TOKEN` | `github.com/iij/dpf-go` の取得。`GITHUB_TOKEN` は当該リポジトリにしか及ばないため使えない | 不要になる |
+| シークレット | `DPF_TOKEN` | 実環境での検証 (`e2e`) で検証用ゾーンを操作する | 引き続き必要 |
+| 変数 | `DPF_TEST_ZONE_NAME` | 検証用ゾーン名 | 引き続き必要 |
 
 未設定でもワークフローは失敗せず警告を出す。`dpf-go` の公開後を見据えているため。
 ただし公開前は、イメージのビルドが `go mod download` の段で失敗する。
@@ -168,6 +170,29 @@ cosign tree ghcr.io/iij/external-dns-iij-dpf-webhook:v0.1.0
 ```bash
 go test ./...
 ```
+
+### 実環境での検証 (e2e)
+
+constitution v2.1.0 は、`main` へマージする前に実際の DPF に対してレコードの
+追加・変更・削除を **CI で** 検証することを MUST とする。手元での確認では代えられない。
+
+`.github/workflows/e2e.yml` が Pull Request のたびに実行する。
+
+**このワークフローは並列に走らない。** 検証用ゾーンは共有される状態であり、
+2 つの実行が同時にゾーンを読み・マージし・書き戻すと互いの変更を取り消し合う。
+またゾーンの内容に対する表明が実行のタイミングに依存し、失敗が再現しなくなる。
+`concurrency` で 1 度に 1 実行へ制限している。
+
+手元で走らせる場合 (**破壊的操作を行う。検証用ゾーンでのみ**):
+
+```bash
+export DPF_E2E_TOKEN_FILE=/path/to/token
+export DPF_E2E_ZONE=sub.example.jp.
+go test ./test/e2e/... -v -count=1
+```
+
+環境変数が揃っていなければスキップする。誤って本番ゾーンへ向かうより、
+検証が行われないことが明示される方が安全である。
 
 テストは実際の DPF API に到達しない。`internal/dpf` は `dpf-go` のインタフェースを、
 `internal/provider` は `internal/provider/ports.go` のインタフェースを差し替えて検証する。

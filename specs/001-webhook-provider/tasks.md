@@ -236,7 +236,7 @@ constitution の改訂で生じた作業。いずれも規範として MUST で�
 - [X] T099 `README.md` に上流 external-dns チャート (<https://kubernetes-sigs.github.io/external-dns/>) を用いたデプロイ手順を追加する。`provider.webhook` に本イメージと推奨 values を与える形で記載し、推奨 values が既定拒否の要件を満たすこと (T098 の結果に依存、constitution v2.0.0)
 - [X] T100 [P] `specs/001-webhook-provider/spec.md` の Assumptions から「Helm チャートは別 feature」の記述を削除し、上流チャートを経路とする旨へ改める。v2.0.0 と矛盾しているため
 - [X] T101 `.github/workflows/e2e.yml` を作成し、検証用ゾーンに対してレコードの追加・変更・削除と、同一変更の再適用で最終状態が変わらないこと (FR-010) を検証する。**`concurrency` で並列実行を抑止する。** 検証用ゾーンは共有される状態であり、同時実行は互いの変更を取り消し合ううえ、表明が実行タイミングに依存して失敗が再現しなくなる (constitution v2.1.0)
-- [ ] T102 検証用ゾーンの DPF アクセストークンとゾーン名をリポジトリシークレットに設定する。**環境側の作業であり、これがないと T081〜T083 と T101 は実行できない**
+- [X] T102 検証用ゾーンの DPF アクセストークンとゾーン名をリポジトリシークレットに設定する。**環境側の作業であり、これがないと T081〜T083 と T101 は実行できない**
 
 - [ ] T081 検証用ゾーンで [quickstart.md](./quickstart.md) の全手順を実行し、結果を記録する。**CI で実行すること。手元での確認で代えない** (constitution v2.1.0)
 - [ ] T082 1,000 件規模のレコードを持つ検証用ゾーンで、レコード一覧の取得と適用が成立することを CI で確認する (SC-008、constitution v2.1.0)
