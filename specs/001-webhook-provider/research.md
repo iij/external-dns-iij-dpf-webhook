@@ -396,3 +396,47 @@ Phase 0 開始時点で spec に未解決の項目はなかった。plan 作成�
 | 1,000 件規模の一括投入 | 可能。SC-008 の規模で方式が成立する |
 | 保留変更が存在する状態での一括更新 | 保留変更は破棄される。公開はされない |
 | ExternalDNS への応答時の名前表現 | 正規化名のまま返してよい。境界ごとの変換は不要 |
+
+---
+
+## R11. 上流 external-dns Helm チャートとの対応 (T098)
+
+**Decision**: デプロイは上流の external-dns Helm チャートを経路とする
+(constitution v2.0.0)。独自のチャートは維持しない。
+
+**調査結果**: チャートの `provider.webhook` および Pod 全体の設定が、
+本サービスの設計とそのまま噛み合う。
+
+| 事項 | チャートの扱い | 本サービス |
+|---|---|---|
+| webhook の provider API | external-dns 本体が `http://localhost:8888` を既定で参照 | provider リスナー既定 `127.0.0.1:8888` |
+| webhook の公開ポート | `containerPort: 8080` (`http-webhook`、固定) | exposed リスナー既定 `:8080` |
+| probe | `/healthz` を `http-webhook` に対して実行 | `/healthz` を exposed で提供 |
+| メトリクスの収集 | `provider.webhook.serviceMonitor` | `/metrics` を exposed で提供 |
+
+**ポートが一致するのは偶然ではない。** 両者とも上流のチュートリアルが示す
+既定値 (provider `8888` / exposed `8080`) に従っているためである
+(constitution v1.1.0)。
+
+### 既定拒否の要件を values で満たせるか
+
+| 要件 | 指定手段 | 可否 |
+|---|---|---|
+| 非 root、`seccompProfile` | Pod 全体の `podSecurityContext` (既定で `runAsNonRoot: true`) | 可 |
+| `readOnlyRootFilesystem`、`capabilities.drop`、`allowPrivilegeEscalation: false` | `provider.webhook.securityContext` | 可 |
+| `automountServiceAccountToken: false` | Pod 全体の同名の値 (**既定は `true`**) | 可。明示的な上書きが要る |
+| resources の requests / limits | `provider.webhook.resources` | 可 |
+| トークンの Secret マウント | `extraVolumes` + `provider.webhook.extraVolumeMounts` | 可 |
+| **NetworkPolicy** | **チャートにテンプレートがない** | **不可** |
+
+**NetworkPolicy はチャートで賄えない。** テンプレート一覧に存在しないため、
+利用者が別途マニフェストとして適用する必要がある。constitution が求める
+既定拒否の egress 制限は、チャートの values では表現できない。
+
+この事実を README に記載し、必要なマニフェストの例を示す。書けない設定を
+推奨として載せることはできないが、要件そのものは消えない。
+
+**注意**: webhook サイドカーのポートは `containerPort: 8080` として
+テンプレートに直書きされており、values で変更できない。本サービスの
+`--exposed-addr` を既定から変えると、チャートの probe と serviceMonitor が
+届かなくなる。

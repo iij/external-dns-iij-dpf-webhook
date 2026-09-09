@@ -1,0 +1,107 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# 実際の DPF に対してレコードの追加・変更・削除を検証する。
+#
+# constitution v2.1.0: `main` へマージする前に、実際の DPF に対してレコードの
+# 追加・変更・削除を CI で実行し、成功することを確認すること (MUST)。
+# 手元での確認をもって代えないこと (MUST NOT)。
+#
+# **破壊的操作を行う。** 検証用ゾーンでのみ実行する。
+name: e2e
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# **並列実行を抑止する (constitution v2.1.0)。**
+#
+# 検証用ゾーンは共有される状態である。2 つの実行が同時に走ると、それぞれが
+# ゾーンを読み、マージし、書き戻す。これは利用前提条件 PC-001 が禁じる
+# 「ロックに参加しない機械的な変更者」が 2 つ並ぶ状況にほかならず、
+# 互いの変更を取り消し合う。
+#
+# ゾーンロックによって書き込み自体は直列化されるが、それでは足りない。
+# 検証はゾーンの内容に対して表明を行うため、一方の実行が作ったレコードが
+# 他方の表明に混ざり、判定が実行のタイミングに依存する。
+#
+# cancel-in-progress は false とする。途中で打ち切ると、後始末が走らずに
+# 検証用ゾーンへレコードが residue として残る。
+concurrency:
+  group: e2e-verification-zone
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    name: 実際の DPF に対する検証
+    runs-on: ubuntu-latest
+    # 反映の待ち合わせを含むため、既定より長く取る。
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 非公開モジュールの取得を設定する
+        env:
+          MODULE_TOKEN: ${{ secrets.MODULE_TOKEN }}
+        run: |
+          echo "GOPRIVATE=github.com/iij/dpf-go" >> "$GITHUB_ENV"
+          if [ -z "$MODULE_TOKEN" ]; then
+            echo "::warning::MODULE_TOKEN が未設定です"
+            exit 0
+          fi
+          git config --global \
+            url."https://${MODULE_TOKEN}@github.com/iij/".insteadOf \
+            "https://github.com/iij/"
+
+      - name: 検証用の資格情報を用意する
+        id: creds
+        env:
+          DPF_E2E_TOKEN: ${{ secrets.DPF_E2E_TOKEN }}
+          DPF_E2E_ZONE: ${{ secrets.DPF_E2E_ZONE }}
+        run: |
+          # 資格情報が揃っていなければ検証は行われない。**それを見逃さないよう
+          # 明示する。** 「テストが緑」と「検証が行われた」は別のことである。
+          if [ -z "$DPF_E2E_TOKEN" ] || [ -z "$DPF_E2E_ZONE" ]; then
+            echo "::error::DPF_E2E_TOKEN と DPF_E2E_ZONE が未設定です。実環境での検証が行われません"
+            {
+              echo "### 実環境での検証が行われませんでした"
+              echo
+              echo 'constitution v2.1.0 は、`main` へマージする前に実際の DPF に対する'
+              echo '検証を MUST としています。次のリポジトリシークレットを設定してください。'
+              echo
+              echo '| シークレット | 内容 |'
+              echo '|---|---|'
+              echo '| `DPF_E2E_TOKEN` | 検証用ゾーンを操作できる DPF アクセストークン |'
+              echo '| `DPF_E2E_ZONE` | 検証用ゾーン名 (例: `e2e.example.jp`) |'
+              echo
+              echo '**破壊的操作を行います。本番ゾーンを指定しないでください。**'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          # トークンはファイルとして渡す。環境変数から受け取る経路を
+          # 本サービスは持たない (constitution v1.8.0)。
+          umask 077
+          printf '%s' "$DPF_E2E_TOKEN" > "${RUNNER_TEMP}/dpf-token"
+          echo "token_file=${RUNNER_TEMP}/dpf-token" >> "$GITHUB_OUTPUT"
+
+      - name: 追加・変更・削除を検証する
+        env:
+          DPF_E2E_TOKEN_FILE: ${{ steps.creds.outputs.token_file }}
+          DPF_E2E_ZONE: ${{ secrets.DPF_E2E_ZONE }}
+        run: |
+          # -count=1 でキャッシュを使わせない。実環境への到達が目的であり、
+          # 前回の結果を再利用しては検証にならない。
+          go test ./test/e2e/... -v -count=1 -timeout=25m
+
+      - name: トークンを消す
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dpf-token"

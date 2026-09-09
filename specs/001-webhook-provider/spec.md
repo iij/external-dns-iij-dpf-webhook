@@ -380,9 +380,11 @@ DPF は種別ごとに登録可能な形を制限する。システムはこれ�
   ないため対象外とする。ゾーン apex の別名解決を ANAME で行いたい要件は本機能の範囲外とする
 - ExternalDNS が dry-run 相当の確認を行う場合、その判断は ExternalDNS 側が担う。
   本 provider は独自の dry-run 機能を持たない
-- 本機能の範囲は provider の振る舞いに限る。コンテナイメージの構成、Helm チャート、
-  NetworkPolicy などの配布・デプロイ成果物は、constitution が要件を定めるが、
-  本 spec の対象外とし別 feature で扱う
+- 本機能の範囲は provider の振る舞いに限る。コンテナイメージの構成や NetworkPolicy
+  などの配布・デプロイ成果物は、constitution が要件を定めるが、本 spec の対象外とする
+- デプロイは上流の external-dns Helm チャートを経路とする (constitution v2.0.0)。
+  本リポジトリで独自のチャートは維持しない。チャートへ与える推奨 values は
+  README に示す
 
 ## Dependencies
 

@@ -78,6 +78,148 @@ DPF コンソールでの作業を途中で中断したまま放置しないで�
 
 ---
 
+## デプロイ
+
+上流の [external-dns Helm チャート](https://kubernetes-sigs.github.io/external-dns/)
+を用います。同チャートは webhook provider をサイドカーとして扱う仕組みを備えており、
+**本リポジトリは独自のチャートを提供しません**。
+
+### 1. アクセストークンの Secret を作る
+
+```bash
+kubectl create secret generic dpf-token \
+  --namespace external-dns \
+  --from-literal=token='<DPF のアクセストークン>'
+```
+
+### 2. values を用意する
+
+```yaml
+# values.yaml
+provider:
+  name: webhook
+  webhook:
+    image:
+      repository: ghcr.io/iij/external-dns-iij-dpf-webhook
+      tag: v0.1.0          # latest に依存しないこと
+
+    args:
+      - --dpf-token-file=/secrets/token
+      - --domain-filter=example.jp    # 指定しないと 1 件も管理されません
+
+    extraVolumeMounts:
+      - name: dpf-token
+        mountPath: /secrets
+        readOnly: true
+
+    # 既定拒否。緩めるのは必要になったときだけにしてください。
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 65532
+      capabilities:
+        drop: ["ALL"]
+
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+
+extraVolumes:
+  - name: dpf-token
+    secret:
+      secretName: dpf-token
+
+# 本 provider は Kubernetes API を使いません。
+automountServiceAccountToken: false
+serviceAccount:
+  automountServiceAccountToken: false
+```
+
+### 3. インストールする
+
+```bash
+helm repo add external-dns https://kubernetes-sigs.github.io/external-dns/
+helm upgrade --install external-dns external-dns/external-dns \
+  --namespace external-dns --create-namespace \
+  --values values.yaml
+```
+
+### ポートについて
+
+チャートと本 provider の既定値は噛み合うようにできています。**変更しないでください。**
+
+| 経路 | ポート |
+|---|---|
+| ExternalDNS 本体 → webhook の provider API | `localhost:8888`（ExternalDNS の既定） |
+| kubelet の probe、Prometheus のスクレイプ | `8080`（チャートが `containerPort` に直書き） |
+
+`8080` はチャートのテンプレートに直接書かれており **values で変更できません**。
+本 provider の `--exposed-addr` を既定から変えると、probe と serviceMonitor が
+届かなくなります。
+
+### ⚠ NetworkPolicy はチャートに含まれません
+
+チャートには NetworkPolicy のテンプレートがなく、**別途マニフェストを適用する必要が
+あります**。以下は egress を全拒否から始める例です。DPF API のエンドポイントと
+名前解決だけを許可します。
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: external-dns-egress
+  namespace: external-dns
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: external-dns
+  policyTypes: [Egress, Ingress]
+
+  egress:
+    # 名前解決
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # DPF API と Kubernetes API。宛先は環境に合わせて絞ってください。
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+
+  ingress:
+    # probe とスクレイプに必要な送信元のみ。全開放しないでください。
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080
+```
+
+> [!NOTE]
+> `/healthz` と `/metrics` は同一ポートで提供されるため、**NetworkPolicy で
+> 区別できません**。probe を通す設定は、同時に `/metrics` を同じ送信元へ
+> 露出させます。メトリクスにゾーン名やレコード値を載せていないのはこのためです。
+
+OTLP を使う場合は、送出先への egress を上記に追加してください。使わない構成では
+穴を開けないでください。
+
+---
+
 ## アクセストークンの与え方
 
 トークンの供給元は **2 つに限られます**。

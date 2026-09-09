@@ -226,8 +226,20 @@ constitution の改訂で生じた作業。いずれも規範として MUST で�
 
 - [X] T097 [P] サービスの呼称を正式名称へ統一する。`README.md` (4 行目)、`cmd/webhook/main.go` (3 行目)、`specs/001-webhook-provider/spec.md` (9 行目、391 行目) の「IIJ DNS プラットフォームサービス」を「IIJ DNSプラットフォームサービス」へ直す (`DNS` の後の空白を削除)。`build/Containerfile` の英語表記は既に準拠している (constitution v1.14.0)
 
-- [ ] T081 検証用ゾーンで [quickstart.md](./quickstart.md) の全手順を実行し、結果を記録する
-- [ ] T082 1,000 件規模のレコードを持つ検証用ゾーンで、レコード一覧の取得と適用が成立することを確認する (SC-008)
+### constitution v2.0.0 / v2.1.0 への追随
+
+自前 Helm チャートの要件が削除され、上流の external-dns チャートを
+デプロイ経路とすることになった (v2.0.0)。あわせて、`main` へのマージ前に
+実際の DPF に対する検証を CI で行うことが MUST になった (v2.1.0)。
+
+- [X] T098 上流 external-dns チャートの values schema を確認し、既定拒否の要件 (非 root、`readOnlyRootFilesystem`、`capabilities.drop: ALL`、`automountServiceAccountToken: false` 等) を `provider.webhook` 配下でどこまで指定できるかを調べる。指定できない項目があれば、その事実と回避手段を記録する (constitution v2.0.0)
+- [X] T099 `README.md` に上流 external-dns チャート (<https://kubernetes-sigs.github.io/external-dns/>) を用いたデプロイ手順を追加する。`provider.webhook` に本イメージと推奨 values を与える形で記載し、推奨 values が既定拒否の要件を満たすこと (T098 の結果に依存、constitution v2.0.0)
+- [X] T100 [P] `specs/001-webhook-provider/spec.md` の Assumptions から「Helm チャートは別 feature」の記述を削除し、上流チャートを経路とする旨へ改める。v2.0.0 と矛盾しているため
+- [X] T101 `.github/workflows/e2e.yml` を作成し、検証用ゾーンに対してレコードの追加・変更・削除と、同一変更の再適用で最終状態が変わらないこと (FR-010) を検証する。**`concurrency` で並列実行を抑止する。** 検証用ゾーンは共有される状態であり、同時実行は互いの変更を取り消し合ううえ、表明が実行タイミングに依存して失敗が再現しなくなる (constitution v2.1.0)
+- [ ] T102 検証用ゾーンの DPF アクセストークンとゾーン名をリポジトリシークレットに設定する。**環境側の作業であり、これがないと T081〜T083 と T101 は実行できない**
+
+- [ ] T081 検証用ゾーンで [quickstart.md](./quickstart.md) の全手順を実行し、結果を記録する。**CI で実行すること。手元での確認で代えない** (constitution v2.1.0)
+- [ ] T082 1,000 件規模のレコードを持つ検証用ゾーンで、レコード一覧の取得と適用が成立することを CI で確認する (SC-008、constitution v2.1.0)
 - [ ] T083 ExternalDNS と本 provider をサイドカー構成で動かし、Ingress の作成から 5 分以内にレコードが反映されること、差分の振動が起きないことを確認する (SC-001/SC-007)
 - [X] T085 `LICENSE` (Apache-2.0) と `NOTICE` をリポジトリルートに置き、全 Go ファイルに SPDX ヘッダを付与する。`make license-check` で検証する (constitution v1.9.0)
 - [X] T086 [P] 依存モジュールに許容するライセンスの範囲を確定し、constitution の TODO(DEPENDENCY_LICENSE_POLICY) を解消する (v1.11.0)。許容リストを明示し、GPL/AGPL/LGPL/SSPL を禁止。`make license-deps` で機械的に検査する
