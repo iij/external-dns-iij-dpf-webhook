@@ -12,6 +12,7 @@
 - [トレース](#トレース)
 - [エラーの分類と状態コード](#エラーの分類と状態コード)
 - [レコード種別と制約](#レコード種別と制約)
+- [この文書と実装の一致](#この文書と実装の一致)
 - [既知の制限](#既知の制限)
 
 ---
@@ -23,6 +24,8 @@
 ### provider リスナー (既定 `127.0.0.1:8888`)
 
 ExternalDNS からの webhook 要求を受ける。既定ではループバックのみに待ち受ける。
+
+<!-- reference:endpoints-provider -->
 
 | メソッド | 経路 | 成功時 | 内容 |
 |---|---|---|---|
@@ -40,6 +43,8 @@ ExternalDNS からの webhook 要求を受ける。既定ではループバッ�
 
 kubelet の probe と Prometheus のスクレイプを受ける。Pod 外から到達できる。
 
+<!-- reference:endpoints-exposed -->
+
 | メソッド | 経路 | 成功時 | 内容 |
 |---|---|---|---|
 | `GET` | `/healthz` | `200` | `ok`。本文に状態の詳細は載せない |
@@ -52,6 +57,8 @@ kubelet の probe と Prometheus のスクレイプを受ける。Pod 外から�
 ## 設定
 
 すべてコマンドライン引数で与える。**環境変数からは設定を読まない。**
+
+<!-- reference:flags -->
 
 | フラグ | 既定 | 内容 |
 |---|---|---|
@@ -101,6 +108,19 @@ kubelet の probe と Prometheus のスクレイプを受ける。Pod 外から�
 ただし AWS では両者が関係する。Secrets Manager のシークレットが
 カスタマー管理の KMS キーで暗号化されている場合、取得側に `kms:Decrypt` が
 必要になる ([下記](#aws-secrets-manager))。
+
+### 対応するシークレット管理サービス
+
+`--dpf-token-secret-manager` に渡せる値は次のとおり。
+
+<!-- reference:secret-managers -->
+
+| 値 | サービス |
+|---|---|
+| `vault` | HashiCorp Vault (KV シークレットエンジン) |
+| `aws` | AWS Secrets Manager |
+| `azure` | Azure Key Vault |
+| `gcp` | Google Secret Manager |
 
 ### すべての供給元に共通する性質
 
@@ -173,7 +193,11 @@ kubectl create secret generic dpf-token \
 vault kv put secret/dpf/api token='<DPF のアクセストークン>'
 ```
 
-読み取り権限は KV v2 のデータパスに対して与える。
+#### 必要な権限
+
+読み取り権限は **KV v2 のデータパス** に対して与える。`secret/dpf/api` ではなく
+`secret/data/dpf/api` である点に注意する。KV v2 は API 上のパスに `data/` が
+挟まる。
 
 ```hcl
 path "secret/data/dpf/api" {
@@ -413,23 +437,58 @@ gcloud secrets add-iam-policy-binding dpf-api-token \
 Prometheus 形式 (`/metrics`) と OTLP の双方で同じ計測値を提供する。
 計測器は 1 組だけ定義し、両形式はそこから読み出される。
 
-| 名前 | 種別 | 単位 | ラベル | 内容 |
-|---|---|---|---|---|
-| `dns_record_changes_total` | Counter | 件 | `operation`, `success` | DPF へ適用した DNS レコード変更の件数 |
-| `dns_apply_failures_total` | Counter | 回 | (なし) | 変更セットの適用に失敗した回数 |
-| `dpf_api_calls_total` | Counter | 回 | `operation`, `success` | DPF API の呼び出し回数 |
-| `dpf_api_call_duration_seconds` | Histogram | 秒 | `operation`, `success` | DPF API の呼び出しに要した時間 |
+| 名前 | 種別 | 単位 | ラベル | 内容 | 値が変化する契機 |
+|---|---|---|---|---|---|
+| `dns_record_changes_total` | Counter | 件 | `operation`, `success` | DPF へ適用した DNS レコード変更の件数 | `POST /records` の適用が完了したとき。操作種別ごとに件数分だけ増える |
+| `dns_apply_failures_total` | Counter | 回 | (なし) | 変更セットの適用に失敗した回数 | `POST /records` の適用が失敗したとき、1 回につき 1 増える |
+| `dpf_api_calls_total` | Counter | 回 | `operation`, `success` | DPF API の呼び出し回数 | DPF API の呼び出しが終わるたびに 1 増える |
+| `dpf_api_call_duration_seconds` | Histogram | 秒 | `operation`, `success` | DPF API の呼び出しに要した時間 | 同上。呼び出しごとに所要時間が記録される |
 
 **ゾーンロックの取得・解放は計測されていない。** `dpf_api_calls_total` には
 現れない。ロックの競合はログから読む ([既知の制限](#既知の制限))。
+
+### 出力に現れる系列
+
+上の表は計測器の一覧である。**Histogram は出力で 3 つの系列に展開される。**
+Counter は名前に `_total` を含めて定義しているため、出力名と一致する。
+
+<!-- reference:metrics -->
+
+| 系列 | 由来 |
+|---|---|
+| `dns_record_changes_total` | 同名の Counter |
+| `dns_apply_failures_total` | 同名の Counter |
+| `dpf_api_calls_total` | 同名の Counter |
+| `dpf_api_call_duration_seconds_bucket` | `dpf_api_call_duration_seconds` (Histogram) の区間ごとの累積 |
+| `dpf_api_call_duration_seconds_sum` | 同 Histogram の合計 |
+| `dpf_api_call_duration_seconds_count` | 同 Histogram の件数 |
+
+OTLP では計測器の名前がそのまま使われる (`dns_record_changes` など)。
+**両形式は同一の計測値を表す。** 計測器を 1 組だけ定義し、そこから読み出して
+いるためである。
+
+**まだ一度も記録が発生していない系列は出力に現れない。** 起動直後に
+`/metrics` を取得しても、変更を 1 件も適用していなければ
+`dns_record_changes_total` は現れない。記載漏れと区別すること。
 
 ### ラベルの値
 
 | ラベル | 取りうる値 |
 |---|---|
 | `operation` (変更) | `create` \| `update` \| `delete` |
-| `operation` (API) | `list_zones` \| `list_records` \| `current_records` \| `atomic_changes` |
 | `success` | `true` \| `false` |
+
+`dpf_api_calls_total` と `dpf_api_call_duration_seconds` の `operation` は、
+DPF API の呼び出しの種類を表す。
+
+<!-- reference:dpf-operations -->
+
+| `operation` | 対応する呼び出し |
+|---|---|
+| `list_zones` | ゾーンの一覧取得 |
+| `list_records` | 反映済みレコードの一覧取得 (`GET /records` の実体) |
+| `current_records` | 適用時に読み直す反映済みレコードの全件取得 |
+| `atomic_changes` | ゾーンの一括更新と反映 |
 
 ### ラベルに含まれないもの
 
@@ -555,9 +614,19 @@ dpf api: status 400: 400 Bad Request: {"request_id":"...","error_details":[...],
 
 ExternalDNS が表現できる種別と DPF が提供する種別の交差である 9 種別を扱う。
 
-```
-A  AAAA  CNAME  TXT  SRV  NS  PTR  MX  NAPTR
-```
+<!-- reference:record-types -->
+
+| 種別 | 内容 |
+|---|---|
+| `A` | IPv4 アドレス |
+| `AAAA` | IPv6 アドレス |
+| `CNAME` | 別名 |
+| `TXT` | 文字列。ExternalDNS の所有権レジストリにも使われる |
+| `SRV` | サービスの位置 |
+| `NS` | 委任。**ゾーン apex の `NS` は対象外** |
+| `PTR` | 逆引き |
+| `MX` | メール交換 |
+| `NAPTR` | 名前解決の書き換え規則 |
 
 | 制約 | 内容 |
 |---|---|
@@ -578,6 +647,56 @@ A  AAAA  CNAME  TXT  SRV  NS  PTR  MX  NAPTR
 内部では正規化名 (小文字・末尾ドット付きの FQDN) のみを扱う。
 `Example.JP`、`example.jp`、`example.jp.` はいずれも同一のレコードとして扱われる。
 `GET /records` が返す名前は常に正規化名である。
+
+---
+
+## この文書と実装の一致
+
+本文書の一部は、**実装との一致が機械的に検査されている**。実装を変えて
+この文書を更新しないと、品質ゲート (`make all`) が失敗する。
+
+### 検査されている記述
+
+次の表には印 (`<!-- reference:... -->`) が付いており、実装から取り出した事実と
+突き合わせられる。
+
+| 記述 | 突き合わせる相手 |
+|---|---|
+| [設定](#設定)の一覧 (名前と既定値) | `--help` が出力する項目 |
+| [対応するシークレット管理サービス](#対応するシークレット管理サービス)の値 | 実装が受理する値 |
+| [出力に現れる系列](#出力に現れる系列) | 宣言された計測器から導いた系列名 |
+| [`operation` の値](#ラベルの値) | DPF API 呼び出しの計測に渡される識別子 |
+| [レコード種別](#レコード種別と制約)の一覧 | 実装が対応と宣言する種別 |
+| [エンドポイント](#エンドポイント)の経路 | 実装が登録する経路 |
+
+エンドポイントについては**経路のみ**が対象で、メソッドは検査されない。
+
+### 検査されていない記述
+
+**上記以外はすべて人が保っている。** 実装からは機械的に導けないためである。
+
+| 記述 | 検査できない理由 |
+|---|---|
+| **トークンが読まれる位置** (値全体か、特定のフィールドか) | 依存ライブラリの既定値であり、本サービスのコードには「オプションを渡していない」ことしか現れない |
+| 認証の解決順、参照される環境変数 | 各 SDK の内部仕様 |
+| 必要な権限 (IAM ポリシー、RBAC ロール等) | 外部サービスの仕様。こちらから確かめられない |
+| シークレットへのトークンの格納手順 | 同上 |
+| 設定項目・計測値・ラベル・経路の**意味の説明** | 散文 |
+| エラーの分類と外部 API の状態コードの対応 | 網羅的に列挙できない |
+| レコード種別ごとの制約の内容 | 実装側の検証テストが守っている。文書との文字列一致には意味がない |
+| 既知の制限の説明 | 散文 |
+
+> [!IMPORTANT]
+> **トークンが読まれる位置が検査対象外である点に注意してください。**
+>
+> Vault がシークレット内の `token` フィールドを読むこと、AWS / Azure / GCP が
+> 値全体をトークンとして扱うことは、いずれも依存ライブラリの既定の振る舞いです。
+> ライブラリが既定を変えれば、この文書は黙って誤りになります。
+>
+> 緩和として、依存ライブラリの版は固定されています。版が上がるときは
+> Pull Request として現れるため、その時点で確かめられます。
+
+「検査されているから正しい」と読まないでください。検査は上の表の範囲に限られます。
 
 ---
 

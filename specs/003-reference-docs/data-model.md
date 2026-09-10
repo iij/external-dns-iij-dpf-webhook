@@ -14,25 +14,26 @@
 | 項目 | 内容 |
 |---|---|
 | 印 | 文書中の HTML コメント。`<!-- reference:<名前> -->` |
-| 名前 | 対象を識別する語。`flags` / `secret-managers` / `metrics` / `dpf-operations` / `record-types` / `endpoints` |
+| 名前 | 対象を識別する語。`flags` / `secret-managers` / `metrics` / `dpf-operations` / `record-types` / `endpoints-provider` / `endpoints-exposed` |
 | 文書側の値 | 印の直後の表から取り出した値の集合 |
 | 実装側の値 | 実装から取り出した値の集合 |
 | 突き合わせ | 両者が集合として一致すること |
 
-### 6 つの検査対象
+### 7 つの検査対象
 
 | 名前 | 文書側 | 実装側の源 |
 |---|---|---|
 | `flags` | 設定項目の表の第 1 列 (名前) と第 2 列 (既定値) | `config.Usage()` の出力 |
 | `secret-managers` | 供給元の比較表の第 1 列 | `config.Load` が受理する値 |
-| `metrics` | 計測値の表の第 1 列 | Prometheus 形式の出力に現れる系列名 |
+| `metrics` | 出力に現れる系列の表の第 1 列 | 宣言された計測器から導いた系列名 (出力と突き合わせて規則を確認) |
 | `dpf-operations` | `operation` ラベルの値の一覧 | `internal/dpf` で `observe` に渡される文字列リテラル |
 | `record-types` | 対応レコード種別の一覧 | `provider.SupportedRecordTypes()` |
-| `endpoints` | 経路の表の第 2 列 (経路) | `internal/webhook` と `internal/server` で `mux.Handle` / `mux.HandleFunc` に渡される文字列リテラル |
+| `endpoints-provider` | provider の経路の表の第 2 列 | `internal/webhook` で `mux.HandleFunc` に渡される文字列リテラル |
+| `endpoints-exposed` | exposed の経路の表の第 2 列 | `internal/server` で `mux.Handle` / `mux.HandleFunc` に渡される文字列リテラル |
 
 ### 不変条件
 
-- **6 つの印がすべて文書に存在すること。** 1 つでも欠ければ検査は失敗する
+- **7 つの印がすべて文書に存在すること。** 1 つでも欠ければ検査は失敗する
   (research R3)。「対象がないので何も検査しない」で通さない
 - 文書側と実装側は**集合として**一致すること。文書にあって実装にないもの、
   実装にあって文書にないもの、どちらも失敗とする (SC-004、SC-005)
@@ -95,8 +96,8 @@
 | 分類 | 対象 | 性質 |
 |---|---|---|
 | 公開関数 | `flags`、`secret-managers`、`record-types` | 最も壊れにくい。製品の公開面をそのまま使う |
-| 実行時の出力 | `metrics` | **利用者が見る名前**が得られる。内部の計測器名ではない |
-| 構文木 | `dpf-operations`、`endpoints` | 他に源がない場合に限る。検査の側に閉じる |
+| 構文木 + 実行時の出力 | `metrics` | 宣言から導き、出力で規則を確かめる |
+| 構文木 | `dpf-operations`、`endpoints-provider`、`endpoints-exposed` | 他に源がない場合に限る。検査の側に閉じる |
 
 ### 計測値の取り出し
 
@@ -104,12 +105,15 @@
 
 | 内部の計測器 | 出力に現れる系列 |
 |---|---|
-| `dns_record_changes` (Counter) | `dns_record_changes_total` |
+| `dns_record_changes_total` (Counter) | `dns_record_changes_total` (接尾辞を重ねない) |
 | `dpf_api_call_duration_seconds` (Histogram) | `..._bucket` / `..._sum` / `..._count` |
 
-**文書には出力に現れる名前を書く** (FR-017)。したがって実装側の値も出力から
-採る。各計測器に 1 件ずつ記録してから収集することで、未記録の系列が現れない
-問題 (FR-022) も同時に避ける。
+**文書には出力に現れる名前を書く** (FR-017)。ただし実装側の値を出力だけから
+採ると、**計測器を足しただけで記録を書いていない段階を検出できない**。未記録の
+系列は出力に現れないためである (FR-022 の裏返し)。
+
+そこで宣言された計測器から系列名を導き、導出の規則が正しいことを実際の出力との
+突き合わせで確かめる。
 
 ### 不変条件
 

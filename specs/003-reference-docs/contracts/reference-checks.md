@@ -6,16 +6,17 @@
 
 ---
 
-## 検査する 6 つの組
+## 検査する 7 つの組
 
 | 印 | 文書側 | 実装側の源 | 突き合わせる値 |
 |---|---|---|---|
 | `<!-- reference:flags -->` | 設定項目の表 | `config.Usage()` | 設定項目の名前と既定値 |
 | `<!-- reference:secret-managers -->` | 供給元の比較表 | `config.Load` | 受理される供給元の名前 |
-| `<!-- reference:metrics -->` | 計測値の表 | Prometheus 形式の出力 | 系列名 |
+| `<!-- reference:metrics -->` | 出力に現れる系列の表 | 宣言された計測器 + Prometheus 形式の出力 | 系列名 |
 | `<!-- reference:dpf-operations -->` | `operation` の値の表 | `internal/dpf` の構文木 | `observe` の第 2 引数 |
 | `<!-- reference:record-types -->` | 対応種別の表 | `provider.SupportedRecordTypes()` | 種別名 |
-| `<!-- reference:endpoints -->` | 経路の表 | `internal/webhook` / `internal/server` の構文木 | `mux.Handle` / `mux.HandleFunc` の第 1 引数 |
+| `<!-- reference:endpoints-provider -->` | provider の経路の表 | `internal/webhook` の構文木 | `mux.HandleFunc` の第 1 引数 |
+| `<!-- reference:endpoints-exposed -->` | exposed の経路の表 | `internal/server` の構文木 | `mux.Handle` / `mux.HandleFunc` の第 1 引数 |
 
 ---
 
@@ -31,7 +32,7 @@
 
 ### 印の欠落 (原則 VI、research R3)
 
-- 6 つの印がすべて存在することを、突き合わせより**先に**確かめること (MUST)。
+- 7 つの印がすべて存在することを、突き合わせより**先に**確かめること (MUST)。
 - 印が 1 つでも欠けていれば**失敗すること (MUST)**。「対象がないので何も
   検査しない」で通さないこと (MUST NOT)。
 - 印の直後に表がなければ**失敗すること (MUST)**。
@@ -51,8 +52,12 @@
 
 - 公開関数がある対象では、**公開関数を使うこと (MUST)**。構文木を使わないこと
   (MUST NOT)。壊れやすい手段を不要に選ばない。
-- 計測値は**実際の出力から採ること (MUST)**。内部の計測器名を使わないこと
-  (MUST NOT)。出力名と一致しない (`_total`、`_bucket` 等)。
+- 計測値は**宣言された計測器から導くこと (MUST)**。実際の出力だけから採らない
+  こと (MUST NOT)。未記録の計測器が出力に現れず、追加を見逃す (SC-008)。
+- 導出の規則が正しいことを、**実際の出力との突き合わせで毎回確かめること
+  (MUST)**。規則は Prometheus 形式の慣習であり、こちらのコードにはない。
+- 未知の種別の計測器が現れたら**失敗させること (MUST)**。接尾辞の対応を
+  書き足さないまま新しい種別を足すと、その系列が検査から静かに漏れる。
 - 構文木の読み取りは、**呼び出しの引数である文字列リテラルのみ**を見ること
   (MUST)。コメントや無関係な文字列を拾わないこと (MUST NOT)。
 - **検査のために製品コードへ公開関数を足さないこと (MUST NOT)。** 検査の都合で
