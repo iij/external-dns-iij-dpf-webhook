@@ -274,8 +274,47 @@ func (f *fixture) mustApply(t *testing.T, c wireChanges) {
 
 	// 204 No Content であること。上流仕様がこの値を定めており 200 ではない。
 	if status := f.apply(t, c); status != http.StatusNoContent {
+		// **想定外の失敗である。原因を出す。**
+		f.dumpProviderLog(t, providerLogTailLines)
 		t.Fatalf("POST /records = %d, want 204 No Content", status)
 	}
+}
+
+// providerLogTailLines は失敗時に出すログの行数。
+//
+// 原因は直近にある。全文を出すと CI の出力が埋まり、かえって読めない。
+const providerLogTailLines = 60
+
+// dumpProviderLog は取り込んだサーバのログの末尾を出力する。
+//
+// **DPF の応答全文はここにしかない。** HTTP 応答の本文には設計上詳細を載せない
+// ため (contracts/webhook-api.md)、状態コードだけでは何が拒否されたのか追えない。
+// constitution v2.2.0 が外部 API のエラー応答を切り詰めずに記録することを MUST と
+// した理由 (request_id を失わない) が効くのは、まさにこの経路である。
+//
+// これがなかった間、実環境で落ちた原因を「送った形と通った事例の差分」から
+// 推論するしかなかった。推論は当たることもあるが、根拠にはならない。
+//
+// **トークンは伏せて出す。** 万一ログへ漏れていた場合に、CI の出力へ広げない。
+// 漏洩そのものの検出は TestObservability が担う。ここは二重の防壁である。
+func (f *fixture) dumpProviderLog(t *testing.T, lines int) {
+	t.Helper()
+
+	log := f.logs.String()
+	if log == "" {
+		t.Log("provider のログは空である")
+		return
+	}
+
+	if f.token != "" {
+		log = strings.ReplaceAll(log, f.token, "<伏せた: トークン>")
+	}
+
+	all := strings.Split(strings.TrimRight(log, "\n"), "\n")
+	if len(all) > lines {
+		all = all[len(all)-lines:]
+	}
+	t.Logf("provider のログ (末尾 %d 行):\n%s", len(all), strings.Join(all, "\n"))
 }
 
 // uniqueName は実行ごとに異なる名前を返す。

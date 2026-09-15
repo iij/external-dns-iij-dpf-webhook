@@ -355,7 +355,7 @@ DPF 上に用意し、各ゾーンに属する名前のレコードの作成・�
 
 ### 未着手として残すもの
 
-- [ ] T132 `test/e2e` の失敗時に、取り込んだログを出力する。現在 `f.apply` は HTTP 応答の本文しか出さず、本文には設計上詳細が載らない。DPF の応答全文は `f.logs` にあるのに捨てられており、`request_id` が CI ログに残らない (constitution v2.2.0、research R13)
+- [X] T132 `test/e2e` の失敗時に、取り込んだログを出力する。現在 `f.apply` は HTTP 応答の本文しか出さず、本文には設計上詳細が載らない。DPF の応答全文は `f.logs` にあるのに捨てられており、`request_id` が CI ログに残らない (constitution v2.2.0、research R13)
 
 ---
 
