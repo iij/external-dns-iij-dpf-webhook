@@ -136,7 +136,40 @@ func (p *Provider) Records(ctx context.Context) ([]Record, error) {
 		}
 	}
 
+	p.logRecords(ctx, out)
+
 	return out, nil
+}
+
+// logRecords は ExternalDNS へ返すレコードを debug で記録する。
+//
+// **ExternalDNS は差分の判断をログに出さない。** どのフィールドが食い違っていると
+// 見たかは、debug にしても分からない。したがって「何を返したか」をこちら側が
+// 残さないと、同じ差分が繰り返し検出される状態 (SC-007) の原因を追えない。
+//
+// 記録するのは名前・種別・TTL・値である。ExternalDNS が出す
+// 「Endpoints generated from ...」(あるべき状態) と並べれば、差分の出どころが
+// フィールド単位で分かる。
+//
+// debug に限るのは、件数に比例して出力が増えるためである。1,000 件規模のゾーンで
+// 常時これを出すと、本来のログが埋もれる。
+//
+// レコード名を残すことは原則 V に反しない。同原則がラベルと属性に禁じているのは
+// 基数が非有界な値であり、**ログへの出力はその制限の対象外**である。FR-020 は
+// 変更操作について対象を記録することを求めており、こちらはその読み取り側にあたる。
+func (p *Provider) logRecords(ctx context.Context, records []Record) {
+	if !p.logger.Enabled(ctx, slog.LevelDebug) {
+		return
+	}
+
+	for _, r := range records {
+		p.logger.DebugContext(ctx, "レコードを返します",
+			"name", r.Name.String(),
+			"type", r.Type.String(),
+			"ttl", r.TTL,
+			"values", r.Values,
+		)
+	}
 }
 
 // zoneIsRelevant は、そのゾーンに管理対象の名前が存在しうるかを判定する。
