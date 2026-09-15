@@ -4,6 +4,7 @@ package dpf
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	dpfapi "github.com/iij/dpf-go"
@@ -414,5 +415,35 @@ func TestMerge_PreservesNullTTL(t *testing.T) {
 	}
 	if v := a.Ttl.Get(); v == nil || *v != 300 {
 		t.Errorf("A の TTL = %v, want 300", v)
+	}
+}
+
+// FR-007: 実行者の記録をレコードのコメントに書かない。
+//
+// レコード単位の Description は 001 の逐語コピーの対象である (merge の
+// toOverwrite)。本機能の記録はゾーン反映の説明として載るものであり、
+// ここへ書き込むと逐語コピーの保証が崩れる。
+//
+// 既存のコメントが保たれることは TestMerge_* が既に固定している。こちらは
+// **新たに書き込まれないこと**の側を押さえる。
+func TestMerge_DoesNotWriteAttributionIntoRecordComments(t *testing.T) {
+	t.Parallel()
+
+	current := []dpfapi.Record{
+		cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1"),
+	}
+	cs := provider.ChangeSet{
+		Create: []provider.Record{pr("new.example.jp", provider.TypeA, 60, "192.0.2.50")},
+	}
+
+	set, err := merge(current, cs)
+	if err != nil {
+		t.Fatalf("merge = error %v", err)
+	}
+
+	for _, o := range set {
+		if strings.Contains(o.Description, "external-dns-iij-dpf-webhook") {
+			t.Errorf("%s のコメントに記録が書かれた: %q", o.Name, o.Description)
+		}
 	}
 }

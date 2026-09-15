@@ -489,6 +489,7 @@ DPF API の呼び出しの種類を表す。
 | `list_records` | 反映済みレコードの一覧取得 (`GET /records` の実体) |
 | `current_records` | 適用時に読み直す反映済みレコードの全件取得 |
 | `atomic_changes` | ゾーンの一括更新と反映 |
+| `list_zone_histories` | ゾーン反映履歴の取得。**受け入れ確認にのみ用い、通常の動作では呼ばない** |
 
 ### ラベルに含まれないもの
 

@@ -88,6 +88,43 @@ func (c *Client) currentRecords(ctx context.Context, zone provider.Zone) ([]dpfa
 	return result, nil
 }
 
+// applyAttribution は、ゾーン反映の実行者として記録する名前。
+//
+// DPF はゾーン反映の履歴に、要求へ添えた説明を保持する。運用者が履歴を開いた
+// とき、本サービスによる反映と人手による反映を見分けられるようにする (004)。
+//
+// **固定値である。** 変更セットの内容、ゾーン、時刻のいずれにも依存させない。
+// DPF の共通スキーマ Description は maxLength: 80 を宣言しており、固定値なら
+// 収まることが定数として言える。可変長の内容を足すと、その保証が消える
+// (004 research R4/R5)。
+//
+// 履歴には編集者 (operator) も残るが、これは DPF が資格情報から決める値であり、
+// 区別できるのは「どの DPF アカウントか」までである。人が使うアカウントと
+// 本サービスのアカウントが同じ場合に区別がつかない。どのソフトウェアが実行したかは、
+// そのソフトウェア自身が名乗るしかない (004 research R3)。
+const applyAttribution = "external-dns-iij-dpf-webhook"
+
+// atomicChangesBody は一括更新の要求を組み立てる。
+//
+// API 呼び出しから分けてあるのは、**組み立ての内容を API なしに検証できる
+// ようにするため**である。説明が載ることと overwrite フラグが false のままで
+// あることは、DPF へ到達せずに確かめられる。
+//
+// overwrite_soa と overwrite_zone_apex_ns は常に false を明示する。既定値に
+// 頼らないのは、既定が変わってもゾーンの権威データがこちらの意図しない値で
+// 上書きされないようにするため。
+func atomicChangesBody(set []dpfapi.OverwriteRecordsInner) dpfapi.PatchZoneAtomicChanges {
+	overwrite := false
+	description := applyAttribution
+
+	return dpfapi.PatchZoneAtomicChanges{
+		Records:             set,
+		Description:         &description,
+		OverwriteSoa:        &overwrite,
+		OverwriteZoneApexNs: &overwrite,
+	}
+}
+
 // atomicChanges は投入集合でゾーンを一括更新し、反映の完了を待つ。
 //
 // overwrite_soa と overwrite_zone_apex_ns は**常に false** を明示して送る。
@@ -105,13 +142,7 @@ func (c *Client) currentRecords(ctx context.Context, zone provider.Zone) ([]dpfa
 func (c *Client) atomicChanges(ctx context.Context, zone provider.Zone, set []dpfapi.OverwriteRecordsInner) error {
 	api := c.api.GetAPIClient()
 
-	// 常に false。詳細は上のコメントを参照。
-	overwrite := false
-	body := dpfapi.PatchZoneAtomicChanges{
-		Records:             set,
-		OverwriteSoa:        &overwrite,
-		OverwriteZoneApexNs: &overwrite,
-	}
+	body := atomicChangesBody(set)
 
 	// DPF が要求を拒んだとき、何を送ったのかが分からないと原因を追えない。
 	// 件数と先頭の 1 件だけを添える。全件を載せるとログが埋まる。
