@@ -17,6 +17,7 @@ GOLANGCI_LINT_VERSION ?= v2.13.2
 GOVULNCHECK_VERSION ?= v1.7.0
 GO_LICENSES_VERSION ?= latest
 BETTERLEAKS_VERSION ?= v1.8.1
+ACTIONLINT_VERSION ?= v1.7.12
 # REGISTRY_IMAGE はレジストリへ push する際の完全な参照。
 # SBOM と provenance は referrers としてレジストリに紐づくため、push が前提になる。
 REGISTRY_IMAGE ?= $(IMAGE)
@@ -35,7 +36,7 @@ BUILD_ARGS = --build-arg VERSION=$(VERSION) \
              --build-arg CREATED=$(CREATED)
 
 .PHONY: all
-all: secret-scan fmt-check license-check license-deps build lint vuln test
+all: secret-scan fmt-check license-check license-deps build lint workflow-lint vuln test
 
 ## tools: 固定したバージョンの開発ツールを導入する
 ##
@@ -47,6 +48,7 @@ tools:
 	go install github.com/google/go-licenses/v2@$(GO_LICENSES_VERSION)
 	go install github.com/anchore/syft/cmd/syft@$(SYFT_VERSION)
 	go install github.com/betterleaks/betterleaks@$(BETTERLEAKS_VERSION)
+	go install github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
 
 ## fmt-check: 整形されていないファイルがあれば失敗する (gofmt -l の出力が空であること)
 .PHONY: fmt-check
@@ -125,6 +127,18 @@ build:
 .PHONY: lint
 lint:
 	golangci-lint run
+
+## workflow-lint: ワークフローの静的検査
+##
+## contracts/ci-gates.md: 秘密情報を要さない検査として、更新 Pull Request の
+## 文脈でも実行される (FR-012)。
+##
+## Dependabot の github-actions 種別が**アクションの版を自動で書き換える**ため、
+## 書き換え後のワークフローが妥当であることを機械的に確かめる必要がある。
+## 人が読んで気付く前提にしない。
+.PHONY: workflow-lint
+workflow-lint:
+	actionlint
 
 .PHONY: vuln
 vuln:

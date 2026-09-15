@@ -1,0 +1,98 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# 依存パッケージの更新を検出し、更新 Pull Request を自動で作らせる。
+#
+# **マージは自動化しない。** 人のレビューと承認を経る (FR-009)。憲章
+# 「開発ワークフローと品質ゲート」がレビュー承認なしのマージを禁じている。
+#
+# この設定ファイルが定めるのは**バージョン更新だけ**である。脆弱性起点の
+# 更新 (Dependabot security updates) はリポジトリ設定で有効にするものであり、
+# ここには書けない。FR-003 と SC-003 はそちらに依存する (research R8)。
+#
+# 本ファイルの不変条件は test/config/dependabot_test.go が機械的に検査する。
+# 値を緩める変更は検査に落ちる。
+version: 2
+
+# **registries は置かない。**
+# github.com/iij/dpf-go は 2026-09-14 に公開され、モジュールの取得に認証が
+# 要らなくなった。不要になった資格情報の経路を残さない (research R3 改訂)。
+
+updates:
+  # Go モジュール (go.mod / go.sum)
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      # 週 1 回。日次では待機期間 5 日と組み合わせても提案が細かくなりすぎる。
+      # 週次なら待機を満たした更新がまとまって出る (spec Assumptions)。
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Asia/Tokyo
+    # 版の公開から 5 日は提案しない。汚染された版や誤って公開された版が
+    # 取り下げられる窓を避ける (FR-002)。
+    #
+    # **省略すると既定 3 日に緩む。** 要件と静かに食い違うため、
+    # 書かれていないこと自体を検査が失敗として扱う。
+    #
+    # セキュリティ更新には適用されない (Dependabot の仕様)。適用範囲を
+    # 広げる include / exclude は書かない (FR-003)。
+    cooldown:
+      default-days: 5
+    # 種別内の更新を 1 つの Pull Request にまとめる (FR-005)。
+    #
+    # 実際の DPF に対する検証は検証用ゾーンを共有するため直列に走る。
+    # まとめないと、更新のある週に検証が数十回積み上がる (research R6)。
+    groups:
+      go-modules:
+        patterns: ["*"]
+    # 既定は 5。それより狭くして検証の待ち行列を有界に保つ (FR-008、原則 VI)。
+    # まとめの対象外になる依存が出た場合の余裕として 3 とした。
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+
+  # GitHub Actions (.github/workflows/*.yml のアクションの版)
+  #
+  # Dependabot は @vX.Y.Z の形のまま書き換えるため、版を固定するという性質は
+  # 保たれる (constitution v1.3.0)。書き換え後のワークフローが妥当であることは
+  # actionlint が確かめる。
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Asia/Tokyo
+    cooldown:
+      default-days: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+
+  # コンテナ基底イメージ (build/Containerfile の FROM)
+  #
+  # dependabot-core は /dockerfile|containerfile/i で照合するため Containerfile も
+  # 対象になる。FROM scratch には版が無く、更新されるのはビルド段の
+  # golang:1.27-alpine のみである (research「対象となる依存の所在」)。
+  - package-ecosystem: docker
+    directory: /build
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Asia/Tokyo
+    cooldown:
+      default-days: 5
+    groups:
+      base-image:
+        patterns: ["*"]
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+
+# **メジャー版を ignore しない (FR-007)。** 互換性のない変更を含む更新も
+# 提案する。取り込むかどうかは人が判断する。除外すると、古い版に留まって
+# いること自体が視界から消える。

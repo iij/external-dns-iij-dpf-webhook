@@ -64,9 +64,35 @@ jobs:
         env:
           DPF_TOKEN: ${{ secrets.DPF_TOKEN }}
           ZONE_NAME: ${{ vars.DPF_TEST_ZONE_NAME }}
+          GITHUB_ACTOR: ${{ github.actor }}
         run: |
           if [ -z "$DPF_TOKEN" ] || [ -z "$ZONE_NAME" ]; then
             echo "::error::DPF_TOKEN と DPF_TEST_ZONE_NAME が未設定です。検証が行われません"
+            {
+              echo "### 実環境での検証が行われませんでした"
+              echo
+              echo '| 種別 | 名前 | 内容 |'
+              echo '|---|---|---|'
+              echo '| シークレット | `DPF_TOKEN` | 検証用ゾーンを操作できる DPF アクセストークン |'
+              echo '| 変数 | `DPF_TEST_ZONE_NAME` | 検証用ゾーン名 (例: `sub.example.jp.`) |'
+            } >> "$GITHUB_STEP_SUMMARY"
+            if [ "$GITHUB_ACTOR" = "dependabot[bot]" ]; then
+              {
+                echo
+                echo '#### この Pull Request は Dependabot が起点です'
+                echo
+                echo 'Dependabot 起点の実行は Actions secrets を参照できません。'
+                echo '**これは設定の不足ではなく、意図した状態です。** 更新後の依存コードと'
+                echo '検証用ゾーンのトークンを同じ実行に同居させないためです (FR-013)。'
+                echo
+                echo '1. 更新内容 (上流の差分) を確認する'
+                echo '2. **この Pull Request のブランチへコミットを 1 つ積む**'
+                echo '3. 以降の実行は保守担当者が起点となり、全検査が実行される'
+                echo
+                echo '検査を飛ばす設定は足さないでください。skipped はブランチ保護で'
+                echo '成功として数えられます (FR-014)。'
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
             exit 1
           fi
 

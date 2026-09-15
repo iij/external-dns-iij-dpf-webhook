@@ -4,14 +4,16 @@
 
 - Go 1.27 以降
 - `podman` または `docker` (イメージのビルドと ASLR 検証に必要)
-- `golangci-lint`、`govulncheck`
+- `golangci-lint`、`govulncheck`、`actionlint`
+
+固定した版は `make tools` で一括導入できる。CI と同じ版が入る。
 
 ## 品質ゲート
 
 constitution が CI ゲートとして要求する項目を、ローカルでも同じ内容で実行できる。
 
 ```bash
-make all          # fmt-check → build → lint → vuln → test
+make all          # fmt-check → build → lint → workflow-lint → vuln → test
 ```
 
 個別に実行する場合:
@@ -20,6 +22,7 @@ make all          # fmt-check → build → lint → vuln → test
 make fmt-check    # gofmt -l の出力が空であること
 make build
 make lint         # golangci-lint run
+make workflow-lint # actionlint (ワークフローの静的検査)
 make vuln         # govulncheck ./...
 make test
 ```
@@ -206,6 +209,81 @@ README に載せた推奨 values をそのまま使う。**README を直した�
 実 API を用いた確認手順は
 [quickstart.md](../specs/001-webhook-provider/quickstart.md) にまとめてある。
 **破壊的操作を含むため、検証用ゾーンでのみ実行すること。**
+
+## 依存の更新
+
+依存パッケージの更新は Dependabot が検出し、更新 Pull Request を自動で作る。
+設定は [`.github/dependabot.yml`](../.github/dependabot.yml)。**マージは自動化
+しない。** 人のレビューと承認を経る。
+
+### 更新 Pull Request を取り込む手順
+
+Dependabot 起点の実行は Actions secrets を参照できない。**これは設定の不足では
+なく、意図した状態である。** 更新後の依存コードと検証用ゾーンのトークンを同じ
+実行に同居させないためである。汚染された版のコードがトークンを読み取れる状態に
+しては、待機期間を置く意味が薄れる。
+
+そのため、実際の DPF に対する検証 (`e2e` / `e2e-sidecar`) は Dependabot 起点の
+実行では**失敗する**。次の手順で引き取る。
+
+1. **更新内容 (上流の差分) を確認する。** Pull Request 本文に更新前後の版と
+   比較への導線がある
+2. **その Pull Request のブランチへコミットを 1 つ積む**
+3. 以降の実行は保守担当者が起点となり、**必須検査すべてが実行される**。
+   結果はその Pull Request に紐づく
+4. レビュー承認を経てマージする
+
+**この経路のために新しいワークフローを作らない。** 通常の `pull_request` の
+実行がそのまま該当する。依存更新のために検査を減らした経路を設けないことが
+要件である。
+
+### 失敗を飛ばさない
+
+秘密情報が無いことを理由に検査を条件付きで飛ばさないこと。**飛ばした検査は
+「skipped」となり、ブランチ保護では成功として数えられる。** 検査を経ずに
+マージできる状態が生まれる。
+
+「実行できなかった」と「通った」を同じ色にしない。この不変条件は
+`test/config/workflows_test.go` が機械的に検査する。自動マージを足す変更も
+同じ検査に落ちる。
+
+### Dependabot の対象外
+
+依存の記述ではないものは Dependabot が扱わない。**これらの更新は人が行う。**
+
+| 対象 | 場所 |
+|---|---|
+| `GOLANGCI_LINT_VERSION` | `Makefile`、`.github/workflows/ci.yml` の `env` |
+| `GOVULNCHECK_VERSION` | 同上 |
+| `BETTERLEAKS_VERSION` | 同上 |
+| `ACTIONLINT_VERSION` | 同上 |
+| `SYFT_VERSION` | `Makefile` |
+| `GO_LICENSES_VERSION` | `Makefile` |
+
+`Makefile` と `ci.yml` の双方に同じ値が書かれている。**片方だけ更新しない
+こと。** 手元と CI で判定結果が食い違う。
+
+Dependabot が扱うのは次の 3 種別である。
+
+| 種別 | 対象 |
+|---|---|
+| `gomod` | `go.mod` / `go.sum` |
+| `github-actions` | `.github/workflows/*.yml` のアクションの版 |
+| `docker` | `build/Containerfile` のビルド段の基底イメージ |
+
+`FROM scratch` には版が無いため更新の対象にならない。
+
+### リポジトリ設定 (ファイルに現れない)
+
+次はリポジトリの設定であり、作業ツリーに現れないため機械的に検査できない。
+
+| 設定 | 場所 |
+|---|---|
+| Dependabot alerts / security updates を有効にする | Settings → Advanced Security |
+| ブランチ保護 (必須検査 + レビュー承認) | Settings → Branches |
+
+**セキュリティ更新が無効だと、脆弱性の修正も待機期間 5 日に阻まれた状態が
+続く。** `.github/dependabot.yml` をどう書いても有効にはできない。
 
 ## リファレンス
 

@@ -21,6 +21,7 @@ env:
   GOLANGCI_LINT_VERSION: v2.13.2
   GOVULNCHECK_VERSION: v1.7.0
   BETTERLEAKS_VERSION: v1.8.1
+  ACTIONLINT_VERSION: v1.7.12
   IMAGE_NAME: external-dns-iij-dpf-webhook
 
 jobs:
@@ -69,6 +70,16 @@ jobs:
 
       - name: 整形されていることを確認する
         run: make fmt-check
+
+      - name: ワークフローが妥当であることを確認する
+        # 秘密情報を要さないため、Dependabot 起点の実行でも実行される
+        # (FR-012、contracts/ci-gates.md「秘密情報を要しない検査」)。
+        #
+        # Dependabot の github-actions 種別がアクションの版を自動で書き換える。
+        # 書き換え後のワークフローが妥当であることを機械的に確かめる。
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}
+          make workflow-lint
 
       - name: 全 Go ファイルに SPDX ヘッダがあることを確認する
         run: make license-check
