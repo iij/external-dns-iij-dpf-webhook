@@ -11,7 +11,6 @@
 #
 # 必要な設定:
 #   secrets.DPF_TOKEN           検証用ゾーンを操作できる DPF アクセストークン
-#   secrets.MODULE_TOKEN        非公開モジュール github.com/iij/dpf-go の取得用
 #   vars.DPF_TEST_ZONE_NAME     検証用ゾーン名
 name: e2e-sidecar
 
@@ -60,19 +59,6 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: 非公開モジュールの取得を設定する
-        env:
-          MODULE_TOKEN: ${{ secrets.MODULE_TOKEN }}
-        run: |
-          echo "GOPRIVATE=github.com/iij/dpf-go" >> "$GITHUB_ENV"
-          if [ -z "$MODULE_TOKEN" ]; then
-            echo "::error::MODULE_TOKEN が未設定です。イメージのビルドに失敗します"
-            exit 1
-          fi
-          git config --global \
-            url."https://${MODULE_TOKEN}@github.com/iij/".insteadOf \
-            "https://github.com/iij/"
-
       - name: 検証用の資格情報を確認する
         id: creds
         env:
@@ -109,8 +95,6 @@ jobs:
           load: true
           push: false
           tags: ${{ env.IMAGE_NAME }}:sidecar
-          secrets: |
-            gh_token=${{ secrets.MODULE_TOKEN }}
 
       - name: kind クラスタを起動する
         uses: helm/kind-action@v1.15.0

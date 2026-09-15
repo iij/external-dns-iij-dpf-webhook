@@ -74,26 +74,6 @@ jobs:
           ref: ${{ steps.target.outputs.tag }}
           fetch-depth: 1
 
-      - name: 非公開モジュールの取得手段を確認する
-        env:
-          MODULE_TOKEN: ${{ secrets.MODULE_TOKEN }}
-        run: |
-          # github.com/iij/dpf-go は公開されるまで非公開であり、取得に認証が要る。
-          # GITHUB_TOKEN は当該リポジトリにしか及ばないため、別の資格情報が必要になる。
-          #
-          # 公開後は不要になるため、欠けていても失敗させない。ただし気付けるよう
-          # 明示的に知らせる。黙って go mod download の段で失敗すると原因が分かりにくい。
-          if [ -z "$MODULE_TOKEN" ]; then
-            echo "::warning::MODULE_TOKEN が未設定です。github.com/iij/dpf-go が非公開の間はイメージのビルドに失敗します"
-            {
-              echo "### MODULE_TOKEN が未設定です"
-              echo
-              echo '`github.com/iij/dpf-go` の公開までは、同リポジトリを読める資格情報を'
-              echo 'リポジトリシークレット `MODULE_TOKEN` に設定してください。'
-              echo '`GITHUB_TOKEN` は当該リポジトリにしか及ばないため使えません。'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
       - name: buildx を用意する
         uses: docker/setup-buildx-action@v4.3.0
 
@@ -115,8 +95,6 @@ jobs:
           build-args: |
             VERSION=${{ steps.target.outputs.tag }}
             REVISION=${{ github.sha }}
-          secrets: |
-            gh_token=${{ secrets.MODULE_TOKEN }}
 
       - name: SBOM を SPDX JSON で生成する
         uses: anchore/sbom-action@v0.24.2

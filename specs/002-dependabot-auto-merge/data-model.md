@@ -92,16 +92,20 @@
 | SPDX ヘッダ | 不要 | 実行される |
 | ワークフローの静的検査 (`actionlint`) | 不要 | 実行される |
 | 設定の不変条件 (本機能で追加) | 不要 | 実行される |
-| ビルド (`go build`) | **要** (非公開モジュール) | **失敗する** |
-| 静的解析 (`golangci-lint`) | **要** | **失敗する** |
-| 脆弱性検査 (`govulncheck`) | **要** | **失敗する** |
-| 全テスト (`go test`) | **要** | **失敗する** |
-| 契約テスト | **要** | **失敗する** |
-| 既定設定の検証 | **要** (イメージのビルド) | **失敗する** |
-| ASLR の検証 | **要** | **失敗する** |
-| イメージのビルドと走査 | **要** | **失敗する** |
-| 依存ライセンスの検査 | **要** | **失敗する** |
-| 実際の DPF に対する検証 (`e2e`) | **要** | **失敗する** |
+| ビルド (`go build`) | 不要 | 実行される |
+| 静的解析 (`golangci-lint`) | 不要 | 実行される |
+| 脆弱性検査 (`govulncheck`) | 不要 | 実行される |
+| 全テスト (`go test`) | 不要 | 実行される |
+| 契約テスト | 不要 | 実行される |
+| 既定設定の検証 | 不要 | 実行される |
+| ASLR の検証 | 不要 | 実行される |
+| イメージのビルドと走査 | 不要 | 実行される |
+| 依存ライセンスの検査 | 不要 | 実行される |
+| 実際の DPF に対する検証 (`e2e`) | **要** (`DPF_TOKEN`) | **失敗する** |
+
+> `github.com/iij/dpf-go` の公開 (2026-09-14) により、モジュール取得の認証が
+> 不要になった。Go の検査とイメージのビルドは Dependabot 起点の実行でも通る。
+> 実際の DPF に対する検証だけが `DPF_TOKEN` を要し、依然として失敗する。
 
 ### 不変条件
 
@@ -119,19 +123,16 @@
 
 | 名前 | 種別 | 参照する場所 | 更新 PR の実行環境に現れるか |
 |---|---|---|---|
-| `DPF_GO_READ_TOKEN` | Dependabot secret | `.github/dependabot.yml` の `registries` のみ | **現れない**。ワークフローが参照しない |
-| `MODULE_TOKEN` | Actions secret | ワークフロー | 現れない。Dependabot 起点では空になる |
-| `DPF_TOKEN` | Actions secret | `e2e.yml` / `e2e-sidecar.yml` | 現れない。同上 |
+| `DPF_TOKEN` | Actions secret | `e2e.yml` / `e2e-sidecar.yml` | 現れない。Dependabot 起点では空になる |
+
+`DPF_GO_READ_TOKEN` と `MODULE_TOKEN` は `dpf-go` の公開により不要になり、
+いずれも用いない。
 
 ### 不変条件
 
-- `DPF_GO_READ_TOKEN` を**ワークフローから参照しないこと。** 参照すると
-  Dependabot 起点の実行で環境に載り、更新後の依存コードから届く (FR-013)
-- `MODULE_TOKEN` と `DPF_TOKEN` を **Dependabot secret として登録しないこと。**
-  登録すると Dependabot 起点の実行で使えるようになり、同じ問題が起きる
-- `DPF_GO_READ_TOKEN` の権限は `github.com/iij/dpf-go` の読み取りに限ること
-- **`github.com/iij/dpf-go` が公開されたら `DPF_GO_READ_TOKEN` と `registries` を
-  削除すること。** 不要になった資格情報を残さない
+- `DPF_TOKEN` を **Dependabot secret として登録しないこと。** 登録すると
+  Dependabot 起点の実行で使えるようになり、更新後の依存コードから届く (FR-013)
+- モジュール取得のための資格情報を新たに設けないこと。`dpf-go` は公開済みである
 
 ---
 

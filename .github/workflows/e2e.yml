@@ -52,19 +52,6 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: 非公開モジュールの取得を設定する
-        env:
-          MODULE_TOKEN: ${{ secrets.MODULE_TOKEN }}
-        run: |
-          echo "GOPRIVATE=github.com/iij/dpf-go" >> "$GITHUB_ENV"
-          if [ -z "$MODULE_TOKEN" ]; then
-            echo "::warning::MODULE_TOKEN が未設定です"
-            exit 0
-          fi
-          git config --global \
-            url."https://${MODULE_TOKEN}@github.com/iij/".insteadOf \
-            "https://github.com/iij/"
-
       - name: 検証用の資格情報を用意する
         id: creds
         env:
@@ -138,19 +125,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-
-      - name: 非公開モジュールの取得を設定する
-        env:
-          MODULE_TOKEN: ${{ secrets.MODULE_TOKEN }}
-        run: |
-          echo "GOPRIVATE=github.com/iij/dpf-go" >> "$GITHUB_ENV"
-          if [ -z "$MODULE_TOKEN" ]; then
-            echo "::warning::MODULE_TOKEN が未設定です"
-            exit 0
-          fi
-          git config --global \
-            url."https://${MODULE_TOKEN}@github.com/iij/".insteadOf \
-            "https://github.com/iij/"
 
       - name: 検証用の資格情報を用意する
         id: creds

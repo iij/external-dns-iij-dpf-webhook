@@ -19,12 +19,6 @@
 
 **警告**: US2 以降の確認は DNS レコードを実際に変更する。本番ゾーンでは実行しない。
 
-`github.com/iij/dpf-go` は公開までの間は非公開のため、モジュール取得に認証が必要:
-
-```bash
-export GOPRIVATE=github.com/iij/dpf-go
-```
-
 ---
 
 ## 1. コード品質ゲート

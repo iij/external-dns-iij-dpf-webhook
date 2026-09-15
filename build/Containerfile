@@ -15,28 +15,13 @@ FROM docker.io/library/golang:1.27-alpine AS build
 
 # gcc と musl-dev は -static-pie の外部リンクに必要。
 # ca-certificates は最終段へコピーする証明書ストアの入手元。
-# git は go mod download が VCS からモジュールを取得する際に要る。
-RUN apk add --no-cache gcc musl-dev ca-certificates git
+RUN apk add --no-cache gcc musl-dev ca-certificates
 
 WORKDIR /src
 
-# github.com/iij/dpf-go は公開されるまで非公開のため、取得に認証が要る。
-# 資格情報はビルドシークレットとして渡し、イメージの層に残さない。
-#
-# 【暫定措置】dpf-go の公開後は GOPRIVATE ごと不要になる。
-#   詳細と渡し方は docs/development.md を参照。
-ENV GOPRIVATE=github.com/iij/dpf-go
-
 # 依存の解決を先に済ませ、ソース変更でのキャッシュ破棄を避ける。
 COPY go.mod go.sum* ./
-RUN --mount=type=secret,id=gh_token \
-    if [ -s /run/secrets/gh_token ]; then \
-      git config --global \
-        url."https://$(cat /run/secrets/gh_token)@github.com/iij/".insteadOf \
-        "https://github.com/iij/"; \
-    fi; \
-    go mod download; \
-    git config --global --unset-all url."https://github.com/iij/".insteadOf 2>/dev/null || true
+RUN go mod download
 
 COPY . .
 
@@ -54,15 +39,8 @@ RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
 # 本文そのものではないため、テキストを同梱する必要がある。
 #
 # 収集は最終段ではなくここで行う。scratch にはツールを置けない。
-RUN --mount=type=secret,id=gh_token \
-    if [ -s /run/secrets/gh_token ]; then \
-      git config --global \
-        url."https://$(cat /run/secrets/gh_token)@github.com/iij/".insteadOf \
-        "https://github.com/iij/"; \
-    fi; \
-    go install github.com/google/go-licenses/v2@latest; \
-    go-licenses save ./cmd/webhook --save_path=/out/licenses/third-party; \
-    git config --global --unset-all url."https://github.com/iij/".insteadOf 2>/dev/null || true
+RUN go install github.com/google/go-licenses/v2@latest && \
+    go-licenses save ./cmd/webhook --save_path=/out/licenses/third-party
 
 FROM scratch
 

@@ -12,11 +12,9 @@
 | 項目 | 内容 |
 |---|---|
 | 権限 | リポジトリの設定 (Dependabot secrets、ブランチ保護) を変更できること |
-| Dependabot secret | `DPF_GO_READ_TOKEN` (`github.com/iij/dpf-go` の読み取り権限のみ) |
-| Actions secret | `MODULE_TOKEN`、`DPF_TOKEN` (既存) |
+| Actions secret | `DPF_TOKEN` (既存) |
 
-**`DPF_GO_READ_TOKEN` を Actions secret として登録しないこと。** また
-`MODULE_TOKEN` と `DPF_TOKEN` を Dependabot secret として登録しないこと。
+**`DPF_TOKEN` を Dependabot secret として登録しないこと。**
 区分の理由は [data-model.md](./data-model.md) の「資格情報の区分」にある。
 
 ---
@@ -68,9 +66,9 @@ Dependabot の設定に対する公式のローカル検証器はない。構文
 |---|---|
 | 3 種別が一覧に現れる | `gomod` / `github-actions` / `docker` |
 | 最後に確認した時刻 | 設定の投入後に更新されている |
-| エラー表示 | **ない**。非公開モジュールの解決に失敗していれば `gomod` にエラーが出る |
+| エラー表示 | **ない**。設定の誤りがあれば該当の種別にエラーが出る |
 
-`gomod` にエラーが出る場合、`DPF_GO_READ_TOKEN` が未登録か権限不足である。
+`gomod` にエラーが出る場合、設定の誤りである。
 **この状態では Go の依存が 1 件も提案されない。**
 
 ### 3b. 提案の内容の確認
@@ -158,7 +156,7 @@ git push
 | 手順 | 期待される結果 |
 |---|---|
 | 更新可能な依存があり、対応する提案がある | 報告なし |
-| `DPF_GO_READ_TOKEN` を無効にして再実行 | **報告される** (Go の更新が提案されていない) |
+| `gomod` の設定を壊して再実行 | **報告される** (Go の更新が提案されていない) |
 | 公開から 5 日未満の版のみ更新可能 | 報告なし (提案されないのが正しい) |
 
 2 行目が要点である。**「更新がない」と「仕組みが動いていない」を区別できる
@@ -177,13 +175,5 @@ git push
 
 ## 7. 公開後の後始末
 
-`github.com/iij/dpf-go` が公開されたら、次を削除する。
-
-| 対象 | 場所 |
-|---|---|
-| `registries` の節 | `.github/dependabot.yml` |
-| `gomod` の `registries` 参照 | 同上 |
-| `DPF_GO_READ_TOKEN` | Dependabot secrets |
-
-削除後、3a を再実行して `gomod` にエラーが出ないことを確認する。
-不要になった資格情報を残さない。
+**完了 (2026-09-14)。** `github.com/iij/dpf-go` は公開され、`registries` も
+`DPF_GO_READ_TOKEN` も設けない。Dependabot secrets に残っていないことを確認する。

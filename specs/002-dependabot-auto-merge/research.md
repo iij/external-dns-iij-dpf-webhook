@@ -102,9 +102,11 @@ FR-014 に反する。
 
 ## R3. 非公開モジュールの更新を検出できるか
 
-**Decision**: `dependabot.yml` の `registries` に `git` 型を 1 つ置き、Dependabot
-secrets に**この用途専用の読み取り専用トークン**を登録する。ワークフローが参照する
-`MODULE_TOKEN` とは別の名前にする。
+**Decision (改訂 2026-09-14)**: `registries` も専用トークンも置かない。
+`github.com/iij/dpf-go` とその副モジュールが公開され、公開プロキシと checksum
+データベースから解決できるようになったため、認証は要らなくなった。
+
+以下は公開前の判断の記録である。
 
 **Rationale**: `github.com/iij/dpf-go` は非公開である。Dependabot が更新を検出する
 には、この解決に認証が必要になる。[private registries の文書](https://docs.github.com/en/code-security/dependabot/working-with-dependabot/configuring-access-to-private-registries-for-dependabot)
@@ -131,7 +133,7 @@ registries:
 崩れる。
 
 **このモジュールが公開されたら、`registries` の設定と専用トークンは不要になる。**
-その時点で削除する。設定に理由を書き添えておく。
+→ 2026-09-14 に公開された。上記の改訂のとおり、いずれも設けない。
 
 **Alternatives considered**:
 
@@ -152,16 +154,16 @@ registries:
 あれば報告する。
 
 **Rationale**: Dependabot の更新処理が失敗している状態は、「更新がない」状態と
-外から区別できない。R3 の認証が切れた場合がまさにこれで、**Go の依存が 1 件も
-提案されなくなるが、リポジトリは静かなまま**になる。仕様が FR-017 と SC-009 で
-これを禁じている。
+外から区別できない。Dependabot の設定が壊れた場合がまさにこれで、**Go の依存が
+1 件も提案されなくなるが、リポジトリは静かなまま**になる。仕様が FR-017 と SC-009
+でこれを禁じている。
 
 Dependabot の実行状態を問い合わせる公開 API はない。そこで、**Dependabot に
 依存しない側から見る。** 自分で更新可能な依存を数え、提案の数と突き合わせる。
 差があれば、提案の仕組みが動いていない。
 
 定期実行の文脈では起点が Dependabot ではないため、Actions secrets が使える。
-`MODULE_TOKEN` で非公開モジュールも解決できる。
+ただし `dpf-go` の公開 (2026-09-14) により、モジュールの取得に資格情報は要らない。
 
 **Alternatives considered**:
 

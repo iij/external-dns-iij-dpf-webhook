@@ -1,8 +1,4 @@
 # constitution v1.8.0 が CI ゲートとして要求する項目を、ローカルでも同じ内容で実行する。
-#
-# github.com/iij/dpf-go は公開されるまで非公開のため、モジュール取得に認証が要る。
-# 詳細は docs/development.md を参照。
-export GOPRIVATE ?= github.com/iij/dpf-go
 
 IMAGE ?= external-dns-iij-dpf-webhook
 
@@ -138,23 +134,11 @@ vuln:
 test:
 	go test ./...
 
-# dpf-go が非公開である間、イメージのビルドにモジュール取得用の資格情報が要る。
-# gh CLI があればそのトークンを使う。公開後はこの一式ごと不要になる。
-# := で即時評価する。?= だと参照のたびに mktemp が走り、別の名前になる。
-GH_TOKEN_FILE := $(shell mktemp -u)
-
 ## image: scratch イメージをビルドする
 .PHONY: image
 image:
-	@if command -v gh >/dev/null 2>&1; then \
-		gh auth token > $(GH_TOKEN_FILE) 2>/dev/null || : > $(GH_TOKEN_FILE); \
-	else \
-		: > $(GH_TOKEN_FILE); \
-	fi; \
-	trap 'rm -f $(GH_TOKEN_FILE)' EXIT; \
 	$(CONTAINER_TOOL) build -t $(IMAGE) -f build/Containerfile \
-		$(BUILD_ARGS) \
-		--secret id=gh_token,src=$(GH_TOKEN_FILE) .
+		$(BUILD_ARGS) .
 
 ## image-push: SBOM と provenance を referrers として付けてレジストリへ push する
 ##
@@ -173,15 +157,8 @@ image-push:
 		echo "  例: make image-push REGISTRY_IMAGE=ghcr.io/iij/$(IMAGE):v0.1.0"; \
 		exit 1; \
 	fi
-	@if command -v gh >/dev/null 2>&1; then \
-		gh auth token > $(GH_TOKEN_FILE) 2>/dev/null || : > $(GH_TOKEN_FILE); \
-	else \
-		: > $(GH_TOKEN_FILE); \
-	fi; \
-	trap 'rm -f $(GH_TOKEN_FILE)' EXIT; \
 	docker buildx build -t $(REGISTRY_IMAGE) -f build/Containerfile \
 		$(BUILD_ARGS) \
-		--secret id=gh_token,src=$(GH_TOKEN_FILE) \
 		--attest=type=sbom \
 		--attest=type=provenance,mode=max \
 		--push .

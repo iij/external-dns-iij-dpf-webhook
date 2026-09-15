@@ -41,19 +41,6 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: 非公開モジュールの取得を設定する
-        env:
-          MODULE_TOKEN: ${{ secrets.MODULE_TOKEN }}
-        run: |
-          echo "GOPRIVATE=github.com/iij/dpf-go" >> "$GITHUB_ENV"
-          if [ -z "$MODULE_TOKEN" ]; then
-            echo "::warning::MODULE_TOKEN が未設定です"
-            exit 0
-          fi
-          git config --global \
-            url."https://${MODULE_TOKEN}@github.com/iij/".insteadOf \
-            "https://github.com/iij/"
-
       - name: govulncheck を実行する
         # バージョンを固定するため自前で導入する (constitution v1.3.0)。
         run: |
@@ -78,8 +65,6 @@ jobs:
           load: true
           push: false
           tags: ${{ env.IMAGE_NAME }}:scheduled
-          secrets: |
-            gh_token=${{ secrets.MODULE_TOKEN }}
 
       - name: 脆弱性を走査する
         uses: aquasecurity/trivy-action@v0.36.0

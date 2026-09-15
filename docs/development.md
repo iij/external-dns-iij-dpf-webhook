@@ -6,34 +6,6 @@
 - `podman` または `docker` (イメージのビルドと ASLR 検証に必要)
 - `golangci-lint`、`govulncheck`
 
-## 非公開モジュールへの依存
-
-`github.com/iij/dpf-go` は本プログラムの完成後に公開される予定であり、**それまでは
-非公開**である。モジュールの取得に認証が必要になる。
-
-```bash
-export GOPRIVATE=github.com/iij/dpf-go
-```
-
-`GOPRIVATE` はプロキシと checksum データベースの両方を迂回させる。これを設定しないと、
-公開プロキシ経由の取得を試みて失敗する。
-
-取得には git の認証が要る。いずれかを設定する。
-
-```bash
-# gh CLI の認証情報を git に流用する
-gh auth setup-git
-
-# あるいは SSH 経由に書き換える
-git config --global url."git@github.com:iij/".insteadOf "https://github.com/iij/"
-```
-
-`dpf-go` が公開されたら `GOPRIVATE` の設定は不要になる。`Makefile` の既定値と本節を
-その時点で削除すること。
-
-> **公開順序**: 本リポジトリを `dpf-go` より先に公開すると、外部からビルドできない
-> 状態になる。`dpf-go` の公開を先に行うこと。
-
 ## 品質ゲート
 
 constitution が CI ゲートとして要求する項目を、ローカルでも同じ内容で実行できる。
@@ -147,14 +119,15 @@ cosign tree ghcr.io/iij/external-dns-iij-dpf-webhook:v0.1.0
 
 ### 必要なシークレットと権限
 
-| 種別 | 名前 | 用途 | 公開後 |
-|---|---|---|---|
-| シークレット | `MODULE_TOKEN` | `github.com/iij/dpf-go` の取得。`GITHUB_TOKEN` は当該リポジトリにしか及ばないため使えない | 不要になる |
-| シークレット | `DPF_TOKEN` | 実環境での検証 (`e2e`) で検証用ゾーンを操作する | 引き続き必要 |
-| 変数 | `DPF_TEST_ZONE_NAME` | 検証用ゾーン名 | 引き続き必要 |
+| 種別 | 名前 | 用途 |
+|---|---|---|
+| シークレット | `DPF_TOKEN` | 実環境での検証 (`e2e`) で検証用ゾーンを操作する |
+| 変数 | `DPF_TEST_ZONE_NAME` | 検証用ゾーン名 |
 
-未設定でもワークフローは失敗せず警告を出す。`dpf-go` の公開後を見据えているため。
-ただし公開前は、イメージのビルドが `go mod download` の段で失敗する。
+未設定でも `e2e` は失敗せず警告を出す。ただしその場合、実環境での検証は
+**行われていない**。「テストが緑」と「検証が行われた」は別のことである。
+
+依存モジュールはすべて公開プロキシから取得できるため、ビルドに資格情報は要らない。
 
 権限は `GITHUB_TOKEN` で足りる。追加のシークレットは要らない。
 

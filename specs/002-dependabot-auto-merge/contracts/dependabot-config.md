@@ -49,12 +49,12 @@
 
 ### 非公開モジュールの解決 (FR-017、research R3)
 
-- `registries` に `git` 型を置き、`gomod` の `updates` 要素から参照すること (MUST)。
-- 資格情報は **Dependabot secret** として与えること (MUST)。
-- その名前を、**ワークフローが参照する秘密情報と別にすること (MUST)。**
-  同じ名前にすると Dependabot 起点のワークフロー実行で環境に載り、更新後の
-  依存コードから届く。
-- `github.com/iij/dpf-go` が公開されたら、この設定と資格情報を削除すること (MUST)。
+**解消済み (2026-09-14)。** `github.com/iij/dpf-go` とその副モジュールは公開され、
+公開プロキシと checksum データベースから解決できる。
+
+- `registries` を置かないこと (MUST NOT)。Go モジュールの解決に認証は要らない。
+- モジュール取得のための Dependabot secret を登録しないこと (MUST NOT)。
+  不要になった資格情報を残さない。
 
 ---
 
@@ -63,7 +63,8 @@
 | 書いてはならないもの | 理由 |
 |---|---|
 | 自動マージを行う設定・ワークフロー | 憲章がレビュー承認なしのマージを禁じる (FR-009) |
-| `MODULE_TOKEN` / `DPF_TOKEN` を Dependabot secret として参照する記述 | 更新後の依存コードと秘密情報が同居する (FR-013) |
+| `DPF_TOKEN` を Dependabot secret として参照する記述 | 更新後の依存コードと秘密情報が同居する (FR-013) |
+| モジュール取得のための `registries` と資格情報 | `dpf-go` は公開済みであり、認証を要さない (FR-017) |
 | メジャー版を `ignore` する記述 | 提案自体は行う (FR-007) |
 | `cooldown` の省略 | 既定 3 日に緩む (FR-002) |
 | `open-pull-requests-limit` の省略または 5 超 | 検証の待ち行列が有界でなくなる (FR-008) |
@@ -80,24 +81,9 @@
 
 version: 2
 
-registries:
-  # github.com/iij/dpf-go は非公開のため、更新の検出に認証が要る。
-  # **公開されたらこの節と DPF_GO_READ_TOKEN を削除する。**
-  #
-  # 名前を MODULE_TOKEN と分けている。Dependabot secret は Dependabot 起点の
-  # ワークフロー実行からも参照できるが、ワークフローが参照しない秘密情報は
-  # 実行環境に現れない。同じ名前にすると、更新後の依存コードから届く。
-  iij-private:
-    type: git
-    url: https://github.com
-    username: x-access-token
-    password: ${{secrets.DPF_GO_READ_TOKEN}}
-
 updates:
   - package-ecosystem: gomod
     directory: /
-    registries:
-      - iij-private
     schedule:
       interval: weekly
       day: monday
