@@ -117,15 +117,17 @@ func TestApplyAttribution(t *testing.T) {
 		if err != nil {
 			t.Fatalf("履歴の取得に失敗: %v", err)
 		}
-
-		// 本テストが加えた 2 件が、いずれも記録を持つこと (SC-002)。
-		added := len(got) - len(before)
-		if added < 2 {
-			t.Fatalf("増えた履歴 = %d 件, want 2 件以上", added)
+		if len(got) < 2 {
+			t.Fatalf("履歴 = %d 件, want 2 件以上", len(got))
 		}
+
+		// **件数の増減では判定しない。** 取得は historyLimit 件で打ち切られた
+		// 窓であり、履歴がそれを超えるゾーンでは件数が常に同じになる。
+		// 本テストが加えた 2 件は、降順の先頭 2 件として現れる (SC-002)。
 		for i := range 2 {
 			if !strings.Contains(got[i].Description, "external-dns-iij-dpf-webhook") {
-				t.Errorf("履歴[%d] の説明 = %q, want 記録を含む", i, got[i].Description)
+				t.Errorf("履歴[%d] (id=%d) の説明 = %q, want 記録を含む",
+					i, got[i].ID, got[i].Description)
 			}
 		}
 	})
@@ -135,18 +137,31 @@ func TestApplyAttribution(t *testing.T) {
 		if err != nil {
 			t.Fatalf("履歴の取得に失敗: %v", err)
 		}
-		if len(got) < len(before) {
-			t.Fatalf("履歴が減った: %d → %d。履歴は追記のみであるべき", len(before), len(got))
+
+		// **ID で突き合わせる。** 降順かつ打ち切られた窓であるため、新しい反映が
+		// 増えると古い側が窓から押し出される。位置で比べると別の履歴同士を
+		// 比べてしまう。窓に残っているものだけを検査すれば足りる (FR-008)。
+		now := make(map[int64]dpf.ZoneHistory, len(got))
+		for _, h := range got {
+			now[h.ID] = h
 		}
 
-		// 適用前に存在した履歴は、末尾側にそのまま残る (新しい順に返るため)。
-		offset := len(got) - len(before)
-		for i := range before {
-			was, now := before[i], got[offset+i]
-			if was.ID != now.ID || was.Description != now.Description {
-				t.Errorf("適用前の履歴が書き換わった: id=%d %q → id=%d %q",
-					was.ID, was.Description, now.ID, now.Description)
+		var checked int
+		for _, was := range before {
+			h, ok := now[was.ID]
+			if !ok {
+				continue // 窓から押し出された。追記のみである限り問題ない
+			}
+			checked++
+			if h.Description != was.Description {
+				t.Errorf("id=%d の説明が書き換わった: %q → %q",
+					was.ID, was.Description, h.Description)
+			}
+			if !h.CommittedAt.Equal(was.CommittedAt) {
+				t.Errorf("id=%d の反映時刻が書き換わった: %s → %s",
+					was.ID, was.CommittedAt, h.CommittedAt)
 			}
 		}
+		t.Logf("窓に残っていた既存の履歴 %d 件を検査した", checked)
 	})
 }

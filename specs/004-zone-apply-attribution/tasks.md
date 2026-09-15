@@ -73,6 +73,20 @@ NON-NEGOTIABLE であるため、テストタスクは省略できない。各�
 
 ---
 
+## Phase 5: 実環境で判明した修正 (履歴の並び順)
+
+初回の実環境検証で `TestApplyAttribution` が落ちた。**履歴の並び順の既定は昇順で
+あり、件数を絞ると最古の履歴だけが返っていた。** 実装側の思い込みであり、DPF の
+挙動の意外性ではない (research R2 に追記)。
+
+- [X] T010 `internal/dpf/history.go` で `Order(SEARCHORDER_DESC)` を明示する。既定 (`ASC`) に頼らない。あわせて「新しい順に返る」という誤った注釈を、既定が昇順である事実と打ち切り窓の注意に書き換える
+- [X] T011 `test/e2e/attribution_test.go` の表明を打ち切り窓に耐える形へ直す。**件数の増減で判定しない** (窓は常に同じ件数で埋まる)。既存の履歴の不変は ID で突き合わせ、窓に残っているものだけを検査する
+- [X] T012 [P] `specs/004-zone-apply-attribution/research.md` の R2 に並び順の既定と打ち切り窓の事実を追記し、`contracts/` に降順を明示する要件を MUST として加える
+
+**Checkpoint**: `make all` 通過。次回の実環境検証で `TestApplyAttribution` が通ること
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	dpfapi "github.com/iij/dpf-go"
+
 	"github.com/iij/external-dns-iij-dpf-webhook/internal/provider"
 )
 
@@ -41,8 +43,14 @@ type ZoneHistory struct {
 // 機械的な表明として書けるようにする (004 research R2)。人手の確認に頼る
 // 受け入れ条件は CI で守れず、守れない条件はいずれ守られなくなる。
 //
+// **並び順を明示して要求する。** DPF の既定は昇順 (`SearchOrder` の
+// `default: "ASC"`) であり、既定のまま件数を絞ると**ゾーン作成時の最古の履歴だけが
+// 返り、新しい履歴には永久に届かない。** 既定に頼らず降順を指定する。
+//
 // 取得件数は historyLimit 件までとする。検証が見るのは直近の数件であり、
-// 全件をたどる理由がない。
+// 全件をたどる理由がない。**ただし打ち切られた窓であることに注意せよ。**
+// 履歴が historyLimit 件を超えるゾーンでは、件数の増減で新しい反映の有無を
+// 判断できない。窓は常に同じ件数で埋まる。
 func (c *Client) ZoneHistories(ctx context.Context, zone provider.Zone) ([]ZoneHistory, error) {
 	var result []ZoneHistory
 
@@ -53,6 +61,7 @@ func (c *Client) ZoneHistories(ctx context.Context, zone provider.Zone) ([]ZoneH
 			//nolint:bodyclose // dpf-go が Body を閉じたうえで返すため
 			histories, resp, err := api.ZoneHistoriesAPI.
 				GetZoneHistoryList(ctx, zone.ID).
+				Order(dpfapi.SEARCHORDER_DESC).
 				Limit(historyLimit).
 				Execute()
 			if err != nil {
@@ -82,5 +91,5 @@ func (c *Client) ZoneHistories(ctx context.Context, zone provider.Zone) ([]ZoneH
 
 // historyLimit は 1 回の取得で得る履歴の件数。
 //
-// 検証が見るのは直近の数件である。DPF の既定は新しい順であり、先頭から数件で足りる。
+// 検証が見るのは直近の数件である。降順を指定しているため、先頭から数件で足りる。
 const historyLimit = 20
