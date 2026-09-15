@@ -189,12 +189,20 @@ func SplitTXT(value string) ([]string, error) {
 
 // NormalizeTXT は DPF へ送る TXT の値を返す。
 //
-// character-string がすべて 255 オクテット以下であれば、受け取った値を
+// **DPF は TXT の RDATA に引用符を要求する。** 引用符のない値をそのまま送ると
+// 拒否されるため、引用符付きの表現形式へ整える。引用符は表現の話であり、
+// character-string の境界は変えない。`v=spf1 -all` は `"v=spf1 -all"` となり、
+// 空白で分割されることはない (FR-032b)。
+//
+// 既に引用符を持つ値は、character-string がすべて 255 オクテット以下であれば
 // そのまま返す。分割位置とエスケープの表現を変えないため (FR-032a)。
 //
-// 255 オクテットを超える character-string がある場合に限り、分割後の表現へ
+// 255 オクテットを超える character-string がある場合は、分割後の表現へ
 // 書き換える。元の値のまま送っても DPF に拒否されるため、ここで整えないと
 // 自動分割の意味がない。
+//
+// [Adjust] が同じ関数を通すため、ExternalDNS には保存されるのと同じ表現が
+// 返る。両者が食い違うと同じ差分が検出され続ける (SC-007)。
 func NormalizeTXT(value string) (string, error) {
 	txt, err := parseTXT(value)
 	if err != nil {
@@ -204,11 +212,17 @@ func NormalizeTXT(value string) (string, error) {
 	// miekg/dns は 255 オクテットを超える character-string を解釈の時点で
 	// 分割してしまうため、分割後の長さを見ても元が長すぎたかは分からない。
 	// 入力に含まれる引用符区間の数と、解釈結果の数を比べて判断する。
-	if len(txt.Txt) <= countQuotedSegments(value) {
+	if len(txt.Txt) <= countQuotedSegments(value) && strings.Contains(value, `"`) {
 		return value, nil
 	}
 
-	// String() は "name TTL CLASS TXT <値>" を返す。値の部分だけを取り出す。
+	return txtRdata(txt, value)
+}
+
+// txtRdata は解釈結果を引用符付きの表現形式へ直列化する。
+//
+// String() は "name TTL CLASS TXT <値>" を返す。値の部分だけを取り出す。
+func txtRdata(txt *dns.TXT, value string) (string, error) {
 	full := txt.String()
 	idx := strings.Index(full, "TXT\t")
 	if idx < 0 {

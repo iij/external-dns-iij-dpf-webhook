@@ -327,6 +327,28 @@ DPF 上に用意し、各ゾーンに属する名前のレコードの作成・�
 
 ---
 
+## Phase 11: 実環境で判明した修正 (TXT の引用符)
+
+**Purpose**: 実環境での検証で判明した DPF の制約に対応する (research R13)
+
+実環境の e2e を初めて実行したところ、引用符のない `TXT` の値が DPF に
+`400` で拒否された。**モックに対するテストでは現れない種類の制約である。**
+
+- [X] T126 `internal/provider/validate_test.go` に、引用符のない値が引用符付きになること、および冪等であることのテストを書く。`TestNormalizeTXT_LeavesValidValuesUnchanged` の引用符なしの例を引用符付きへ改める
+- [X] T127 `internal/provider/adjust_test.go` に、`Adjust` が引用符のない `TXT` を引用符付きで返すことのテストを追加する。保存される形と一致しないと差分が振動する (SC-007)
+- [X] T128 `internal/provider/validate.go` の `NormalizeTXT` を、常に引用符付きの表現形式を返す形へ改める。直列化は `txtRdata` へ切り出す (FR-032c)
+- [X] T129 [P] `specs/001-webhook-provider/spec.md` に FR-032c を追加し、FR-032a に「引用符の付与は境界を変えないため抵触しない」旨を補う
+- [X] T130 [P] `specs/001-webhook-provider/research.md` に R13 を追加する。判明の経緯、却下した代案、CI ログに診断情報が出なかった課題を記録する
+- [X] T131 [P] `data-model.md` / `contracts/dpf-client.md` / `quickstart.md` / `docs/reference.md` に、DPF へ送る `TXT` が引用符付きであることを反映する
+
+**Checkpoint**: `make all` 通過。実環境の `TestTXTRoundTrip` が通ること (次回の e2e 実行で確認)
+
+### 未着手として残すもの
+
+- [ ] T132 `test/e2e` の失敗時に、取り込んだログを出力する。現在 `f.apply` は HTTP 応答の本文しか出さず、本文には設計上詳細が載らない。DPF の応答全文は `f.logs` にあるのに捨てられており、`request_id` が CI ログに残らない (constitution v2.2.0、research R13)
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies

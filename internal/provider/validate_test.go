@@ -242,7 +242,7 @@ func TestNormalizeTXT_LeavesValidValuesUnchanged(t *testing.T) {
 		`"only"`,
 		`"has space" "second"`,
 		`"esc\"aped"`,
-		"v=spf1 -all",
+		`"v=spf1 -all"`,
 		`"` + strings.Repeat("k", 200) + `" "` + strings.Repeat("k", 200) + `"`,
 	}
 
@@ -299,6 +299,69 @@ func lengths(parts []string) []int {
 //
 // 読み取った値を書き戻したとき、分割が変化しない。連結すると 255 制限に
 // 抵触して登録できなくなり、分割位置を変えると受信側が解釈する値が変わる。
+// DPF は TXT の RDATA に引用符を要求する。
+//
+// 引用符のない値をそのまま送ると DPF に拒否される (実環境の e2e で 400 を確認)。
+// 引用符で囲うのは表現の話であり、character-string の境界は変わらない。
+// 空白で分割しないこと (FR-032b) と両立する。
+//
+// Adjust が同じ関数を通すため、ExternalDNS には引用符付きの値が返る。
+// 保存される値と一致するので、差分が振動しない (SC-007)。
+func TestNormalizeTXT_QuotesUnquotedValues(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"v=spf1 -all", `"v=spf1 -all"`},
+		{"single", `"single"`},
+		{"a b c", `"a b c"`},
+	}
+
+	for _, c := range cases {
+		got, err := NormalizeTXT(c.in)
+		if err != nil {
+			t.Errorf("NormalizeTXT(%q) = error %v", c.in, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("NormalizeTXT(%q) = %q, want %q", c.in, got, c.want)
+		}
+
+		// 境界は 1 個のまま。空白で分割していないこと (FR-032b)。
+		parts, err := SplitTXT(got)
+		if err != nil {
+			t.Errorf("SplitTXT(%q) = error %v", got, err)
+			continue
+		}
+		if len(parts) != 1 || parts[0] != c.in {
+			t.Errorf("SplitTXT(%q) = %q, want [%q]", got, parts, c.in)
+		}
+	}
+}
+
+// 冪等であること (FR-015)。引用符を付けた値を再度通しても変わらない。
+func TestNormalizeTXT_QuotingIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	for _, v := range []string{"v=spf1 -all", "single", `"already quoted"`} {
+		once, err := NormalizeTXT(v)
+		if err != nil {
+			t.Errorf("NormalizeTXT(%q) = error %v", v, err)
+			continue
+		}
+		twice, err := NormalizeTXT(once)
+		if err != nil {
+			t.Errorf("NormalizeTXT(%q) = error %v", once, err)
+			continue
+		}
+		if twice != once {
+			t.Errorf("再適用で変化した: %q -> %q -> %q", v, once, twice)
+		}
+	}
+}
+
 func TestSplitTXT_PreservesSplit(t *testing.T) {
 	t.Parallel()
 

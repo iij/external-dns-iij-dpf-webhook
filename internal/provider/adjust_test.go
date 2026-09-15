@@ -79,7 +79,7 @@ func TestAdjust_LeavesValidRecordsUnchanged(t *testing.T) {
 	in := []Record{
 		{Name: dnsname.MustParse("www.example.jp"), Type: TypeA, TTL: 300, Values: []string{"192.0.2.1"}},
 		{Name: dnsname.MustParse("t.example.jp"), Type: TypeTXT, TTL: 60, Values: []string{`"part-one" "part-two"`}},
-		{Name: dnsname.MustParse("s.example.jp"), Type: TypeTXT, TTL: 60, Values: []string{"v=spf1 -all"}},
+		{Name: dnsname.MustParse("s.example.jp"), Type: TypeTXT, TTL: 60, Values: []string{`"v=spf1 -all"`}},
 	}
 
 	got := Adjust(in)
@@ -94,6 +94,38 @@ func TestAdjust_LeavesValidRecordsUnchanged(t *testing.T) {
 		if strings.Join(got[i].Values, "\x00") != strings.Join(in[i].Values, "\x00") {
 			t.Errorf("%s: 値が変化した: %q → %q", in[i].Name, in[i].Values, got[i].Values)
 		}
+	}
+}
+
+// 引用符のない TXT は、引用符付きにして返す。
+//
+// DPF は TXT の RDATA に引用符を要求する。保存される形を返さないと、
+// ExternalDNS は引用符なしの値が保存されると期待し、実際には引用符付きで
+// 保存されるため、毎回差分として検出され続ける (SC-007)。
+//
+// 境界は 1 個のまま変わらない。空白で分割しない (FR-032b)。
+func TestAdjust_QuotesUnquotedTXT(t *testing.T) {
+	t.Parallel()
+
+	in := []Record{
+		{Name: dnsname.MustParse("s.example.jp"), Type: TypeTXT, TTL: 60, Values: []string{"v=spf1 -all"}},
+	}
+
+	got := Adjust(in)
+
+	if len(got) != 1 {
+		t.Fatalf("件数 = %d, want 1", len(got))
+	}
+	if len(got[0].Values) != 1 || got[0].Values[0] != `"v=spf1 -all"` {
+		t.Fatalf("値 = %q, want [%q]", got[0].Values, `"v=spf1 -all"`)
+	}
+
+	parts, err := SplitTXT(got[0].Values[0])
+	if err != nil {
+		t.Fatalf("SplitTXT = error %v", err)
+	}
+	if len(parts) != 1 || parts[0] != "v=spf1 -all" {
+		t.Errorf("character-string = %q, want [\"v=spf1 -all\"]", parts)
 	}
 }
 
