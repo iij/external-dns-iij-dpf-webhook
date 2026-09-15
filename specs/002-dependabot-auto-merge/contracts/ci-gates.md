@@ -49,6 +49,22 @@
 - 対象: シークレットの混入検査、整形、SPDX ヘッダ、ワークフローの静的検査、
   設定の不変条件。
 
+#### ワークフローの静的検査 (research R7)
+
+**現状 `actionlint` はどこにも組み込まれていない。** 本契約が FR-012 の対象として
+数えている検査が存在しないため、本機能で足す。
+
+- `Makefile` に `workflow-lint` ターゲットを置き、`make all` の依存に加えること
+  (MUST)。手元と CI で同じ検査を走らせるため。
+- `ci.yml` は `make` 経由で呼ぶこと (MUST)。既存のゲート (`fmt-check`、`lint`、
+  `vuln`、`secret-scan`) と同じ形にする。
+- 版を `ACTIONLINT_VERSION` として固定すること (MUST)。constitution v1.3.0。
+- GitHub Action 版を直接使って `Makefile` を迂回しないこと (MUST NOT)。
+  `make all` から漏れ、CI でしか落ちない検査になる。
+
+Dependabot の `github-actions` 種別が**アクションの版を自動で書き換える**ため、
+書き換え後のワークフローが妥当であることを機械的に確かめる必要がある。
+
 ### 実際の DPF に対する検証 (FR-016)
 
 - 並列に実行しないこと (MUST NOT)。既存の `concurrency` グループ

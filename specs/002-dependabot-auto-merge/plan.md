@@ -32,15 +32,19 @@ Dependabot 側に持たせる秘密情報は無い。
 **Language/Version**: 設定ファイルとシェル。Go の変更はない (Go 1.27、既存の
 コードには手を入れない)
 
-**Primary Dependencies**: GitHub Dependabot (`.github/dependabot.yml`)、
-GitHub Actions (既存の `ci.yml` / `e2e.yml` / `e2e-sidecar.yml` / `scheduled.yml`)、
-`gh` CLI (定期検査での Pull Request の照会)、`go list -m -u all` (更新可能な依存の列挙)
+**Primary Dependencies**: GitHub Dependabot のバージョン更新
+(`.github/dependabot.yml`)、**Dependabot alerts / security updates (リポジトリ設定。
+設定ファイルでは有効にできない。research R8)**、GitHub Actions (既存の `ci.yml` /
+`e2e.yml` / `e2e-sidecar.yml` / `scheduled.yml`)、`gh` CLI (定期検査での Pull Request
+の照会)、`go list -m -u all` (更新可能な依存の列挙)
 
 **Storage**: N/A
 
-**Testing**: `actionlint` (ワークフローの静的検査)、`.github/dependabot.yml` の
-不変条件を検査する仕組み (待機期間が 5 日であること、自動マージが有効でないこと、
-3 種別が揃っていること)。既存の `make all` はそのまま
+**Testing**: `actionlint` (ワークフローの静的検査。**現状どこにも組み込まれて
+いないため本機能で `Makefile` と `ci.yml` に足す。** research R7)、
+`.github/dependabot.yml` の不変条件を検査する仕組み (待機期間が 5 日であること、
+自動マージが有効でないこと、3 種別が揃っていること)。既存の `make all` に
+`workflow-lint` を加える
 
 **Target Platform**: GitHub (Actions ランナーは `ubuntu-latest`)
 
@@ -92,7 +96,9 @@ GitHub Actions (既存の `ci.yml` / `e2e.yml` / `e2e-sidecar.yml` / `scheduled.
 
 ### 技術・配布制約との関係
 
-- **バージョン固定 (constitution v1.3.0)**: Dependabot はアクションの版を
+- **バージョン固定 (constitution v1.3.0)**: 本機能で足す `actionlint` の版も
+  `ACTIONLINT_VERSION` として `Makefile` 冒頭に固定する (research R7)。
+  Dependabot はアクションの版を
   `@vX.Y.Z` の形のまま書き換える。固定という性質は保たれる。ただし
   **Makefile と `ci.yml` の `env` に書いたツールの版 (`GOLANGCI_LINT_VERSION` など)
   は Dependabot の対象外**である。これらは依存の記述ではないため、更新は
@@ -139,20 +145,32 @@ specs/002-dependabot-auto-merge/
 
 ```text
 .github/
-├── dependabot.yml            # 新規。更新の検出と提案の設定
+├── dependabot.yml            # 新規。更新の検出と提案の設定 (バージョン更新のみ)
 └── workflows/
-    ├── ci.yml                # 秘密情報が無い場合の案内を足す
-    ├── e2e.yml               # 変更なし (concurrency をそのまま使う)
-    ├── e2e-sidecar.yml       # 変更なし
+    ├── ci.yml                # actionlint の実行を足す
+    ├── e2e.yml               # 秘密情報が無い場合の案内を足す
+    ├── e2e-sidecar.yml       # 同上
     └── scheduled.yml         # 未提案の更新と滞留の検査を足す
+
+Makefile                      # workflow-lint (actionlint) を足し all の依存に加える
 
 test/
 └── config/
-    └── dependabot_test.go    # 新規。設定の不変条件を検査する
+    ├── doc.go                # 新規
+    ├── load.go               # 新規。設定とワークフローの読み取り
+    ├── dependabot_test.go    # 新規。設定の不変条件を検査する
+    └── workflows_test.go     # 新規。自動マージと検査飛ばしの禁止を検査する
 
 docs/
-└── development.md            # 更新 PR を取り込む手順を足す
+└── development.md            # 更新 PR を取り込む手順と Dependabot の対象外を足す
 ```
+
+**リポジトリ設定 (作業ツリーに現れない)**:
+
+| 設定 | 対応する要件 | 検査できるか |
+|---|---|---|
+| Dependabot alerts / security updates を有効にする | FR-003、SC-003 | **できない**。quickstart で人が確認する (research R8) |
+| ブランチ保護 (必須検査 + レビュー承認) | FR-009、FR-010 | **できない**。同上 |
 
 **Structure Decision**: 既存の構造にそのまま載せる。
 

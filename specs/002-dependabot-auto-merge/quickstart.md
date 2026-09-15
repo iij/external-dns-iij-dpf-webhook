@@ -11,11 +11,28 @@
 
 | 項目 | 内容 |
 |---|---|
-| 権限 | リポジトリの設定 (Dependabot secrets、ブランチ保護) を変更できること |
+| 権限 | リポジトリの設定 (Advanced Security、ブランチ保護) を変更できること |
 | Actions secret | `DPF_TOKEN` (既存) |
+| ツール | `actionlint` (本機能で `make tools` に加わる) |
 
 **`DPF_TOKEN` を Dependabot secret として登録しないこと。**
 区分の理由は [data-model.md](./data-model.md) の「資格情報の区分」にある。
+
+### リポジトリ設定 (機械的に検査できない)
+
+**本機能の設定は 2 か所に分かれる** ([data-model.md](./data-model.md)
+「設定の所在」)。次は作業ツリーに現れないため `test/config/` では検査できない。
+**ここで人が一度確かめる。**
+
+| 設定 | 場所 | 対応する要件 |
+|---|---|---|
+| Dependabot alerts を有効にする | Settings → Advanced Security | FR-003、SC-003 |
+| Dependabot security updates を有効にする | 同上 | FR-003、SC-003 |
+| ブランチ保護 (必須検査 + レビュー承認) | Settings → Branches | FR-009、FR-010 |
+
+**セキュリティ更新が無効だと、`.github/dependabot.yml` をどう書いても
+SC-003 は成立しない。** `cooldown` がセキュリティ更新に適用されないことは
+FR-003 を満たすが、そもそも提案が作られなければ意味がない (research R8)。
 
 ---
 
@@ -44,9 +61,12 @@ go test ./test/config/... -v
 ## 2. 設定の構文
 
 ```bash
-actionlint                                    # ワークフロー
+make workflow-lint                            # ワークフロー (actionlint)
 python3 -c 'import yaml,sys; yaml.safe_load(open(".github/dependabot.yml"))'
 ```
+
+`actionlint` は本機能で新たに組み込む (research R7)。**それまではどこにも
+存在しなかった。** `make all` に乗っているため、単独で呼ばなくても走る。
 
 Dependabot の設定に対する公式のローカル検証器はない。構文の誤りは GitHub 側で
 検出され、リポジトリの Insights → Dependency graph → Dependabot に表示される。
@@ -83,6 +103,27 @@ Dependabot の設定に対する公式のローカル検証器はない。構文
 | 公開から 5 日未満の版 | **提案に含まれない** |
 | メジャー版への更新 | 提案に**含まれる** (除外しない) |
 | ラベル | `dependencies` |
+
+---
+
+### 3c. 脆弱性起点の更新 (FR-003、SC-003)
+
+**待機期間の対象外である。** 5 日を待たずに提案されることを確認する。
+
+| 確認 | 期待される結果 |
+|---|---|
+| Settings → Advanced Security | Dependabot alerts と security updates が**有効** |
+| Security → Dependabot alerts | 検出済みの勧告が一覧に出る (0 件でも画面が使える状態であること) |
+| 修正版のある勧告 | **待機期間を待たず**に更新 Pull Request が作られる |
+| 修正版の無い勧告 (`Fixed in: N/A`) | **Pull Request は作られない。** 定期スキャンの側で扱う |
+
+最後の行が要点である。Dependabot は更新先が無ければ何もできない。
+`govulncheck` / `trivy` の定期スキャンはこれを検出するため、
+**セキュリティ更新を有効にしても定期スキャンは不要にならない** (research R8)。
+
+有効になっていない場合、**この節のすべてが静かに何も起きない状態**になる。
+「脆弱性が無い」と「仕組みが動いていない」の区別がつかない。US3 の検査
+(6a) が対象とするのはバージョン更新であり、ここは覆わない。
 
 ---
 
