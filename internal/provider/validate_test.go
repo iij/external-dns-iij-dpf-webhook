@@ -14,76 +14,56 @@ func r(name string, t RecordType, ttl int, values ...string) Record {
 	return Record{Name: dnsname.MustParse(name), Type: t, TTL: ttl, Values: values}
 }
 
-var zoneJP = Zone{Name: dnsname.MustParse("example.jp"), ID: "z1"}
-
-// FR-029: ゾーン名と同じ名前の NS レコードを削除しない。
+// FR-029: `NS` はゾーンによらず管理対象外である。
 //
-// DPF が削除を許さないため、要求を黙って読み飛ばすと「要求されたのに
-// 実行しなかった変更」を成功として返すことになる。それは FR-012 が禁じる
-// 「部分的に成功した状態を成功として返す」ことにあたるため、失敗として返す。
-func TestValidate_RejectsApexNSDeletion(t *testing.T) {
-	t.Parallel()
-
-	cs := ChangeSet{Delete: []Record{r("example.jp", TypeNS, 3600, "ns1.example.jp.")}}
-
-	err := Validate(cs, zoneJP)
-	if err == nil {
-		t.Fatal("apex NS の削除要求が受け入れられた")
-	}
-	if !errors.Is(err, ErrPermanent) {
-		t.Errorf("err = %v, want ErrPermanent", err)
-	}
-}
-
-// apex 以外の NS は削除できる。委任の取り消しは正当な操作である。
-func TestValidate_AllowsNonApexNSDeletion(t *testing.T) {
-	t.Parallel()
-
-	cs := ChangeSet{Delete: []Record{r("sub.example.jp", TypeNS, 3600, "ns1.other.jp.")}}
-
-	if err := Validate(cs, zoneJP); err != nil {
-		t.Errorf("apex 以外の NS 削除が拒否された: %v", err)
-	}
-}
-
-// apex NS の作成・更新も拒否する。
+// ゾーンカットでは、委任の NS (親ゾーン側) と apex の NS (子ゾーン側) が
+// 名前も種別も同じまま両側に存在する。ExternalDNS が渡すのは名前と種別だけで
+// あり、どちら側かを指す手段がない。区別できないものを推測で更新すると、
+// 子ゾーンの権威 NS が親側の値で書き換わる。
 //
-// DPF の `atomic_changes` は `overwrite_zone_apex_ns` を常に false で送るため、
-// 投入した apex NS は取り込まれない。受け付けておいて適用しないと、
-// 要求された変更を実行しないまま成功を返すことになり、FR-012 に反する。
-func TestValidate_RejectsApexNSModification(t *testing.T) {
+// 加えて apex の NS は overwrite_zone_apex_ns が常に false のため投入しても
+// 取り込まれず、受け付けて適用しないことは FR-012 に反する。
+//
+// したがって apex かどうかで分岐せず、種別ごと拒否する。
+func TestValidateFormat_RejectsNS(t *testing.T) {
 	t.Parallel()
 
-	for _, cs := range []ChangeSet{
-		{UpdateTo: []Record{r("example.jp", TypeNS, 3600, "ns1.example.jp.")}},
-		{Create: []Record{r("example.jp", TypeNS, 3600, "ns1.example.jp.")}},
-		{Delete: []Record{r("example.jp", TypeNS, 3600, "ns1.example.jp.")}},
-	} {
-		err := Validate(cs, zoneJP)
-		if err == nil {
-			t.Errorf("apex NS の変更が受け入れられた: %+v", cs)
-			continue
-		}
-		if !errors.Is(err, ErrPermanent) {
-			t.Errorf("err = %v, want ErrPermanent", err)
+	// ゾーン apex、委任、いずれの名前でも同じ扱いになること。
+	for _, name := range []string{"example.jp", "sub.example.jp"} {
+		for _, cs := range []ChangeSet{
+			{Create: []Record{r(name, "NS", 3600, "ns1.example.jp.")}},
+			{UpdateTo: []Record{r(name, "NS", 3600, "ns1.example.jp.")}},
+			{Delete: []Record{r(name, "NS", 3600, "ns1.example.jp.")}},
+		} {
+			err := ValidateFormat(cs)
+			if err == nil {
+				t.Errorf("%s の NS 変更が受け入れられた: %+v", name, cs)
+				continue
+			}
+			if !errors.Is(err, ErrPermanent) {
+				t.Errorf("%s: err = %v, want ErrPermanent", name, err)
+			}
+			if !errors.Is(err, ErrUnsupportedType) {
+				t.Errorf("%s: err = %v, want ErrUnsupportedType", name, err)
+			}
 		}
 	}
 }
 
-// FR-030: CNAME は同一の名前に複数の値を持てない。
-func TestValidate_RejectsCNAMEWithMultipleValues(t *testing.T) {
+// NS は許可リストに存在しない (FR-026)。
+func TestSupportedRecordTypes_ExcludesNS(t *testing.T) {
 	t.Parallel()
 
-	cs := ChangeSet{Create: []Record{
-		r("www.example.jp", TypeCNAME, 300, "a.example.jp.", "b.example.jp."),
-	}}
-
-	err := Validate(cs, zoneJP)
-	if err == nil {
-		t.Fatal("複数値の CNAME が受け入れられた")
+	for _, rt := range SupportedRecordTypes() {
+		if rt == "NS" {
+			t.Fatal("NS が許可リストに残っている")
+		}
 	}
-	if !errors.Is(err, ErrPermanent) {
-		t.Errorf("err = %v, want ErrPermanent", err)
+	if IsSupportedRecordType("NS") {
+		t.Error("IsSupportedRecordType(\"NS\") = true, want false")
+	}
+	if _, err := ParseRecordType("NS"); !errors.Is(err, ErrUnsupportedType) {
+		t.Errorf("ParseRecordType(\"NS\") = %v, want ErrUnsupportedType", err)
 	}
 }
 
@@ -96,7 +76,7 @@ func TestValidate_RejectsCNAMECoexistence(t *testing.T) {
 		r("www.example.jp", TypeA, 300, "192.0.2.1"),
 	}}
 
-	err := Validate(cs, zoneJP)
+	err := ValidateFormat(cs)
 	if err == nil {
 		t.Fatal("CNAME と A の共存が受け入れられた")
 	}
@@ -114,7 +94,7 @@ func TestValidate_AllowsCNAMEAndAOnDifferentNames(t *testing.T) {
 		r("b.example.jp", TypeA, 300, "192.0.2.1"),
 	}}
 
-	if err := Validate(cs, zoneJP); err != nil {
+	if err := ValidateFormat(cs); err != nil {
 		t.Errorf("別名での共存が拒否された: %v", err)
 	}
 }
@@ -138,7 +118,7 @@ func TestValidate_RejectsUnderscoreInAddressRecords(t *testing.T) {
 
 	for _, c := range cases {
 		cs := ChangeSet{Create: []Record{r(c.name, c.rtype, 300, c.target)}}
-		err := Validate(cs, zoneJP)
+		err := ValidateFormat(cs)
 		if err == nil {
 			t.Errorf("%s %s が受け入れられた", c.name, c.rtype)
 			continue
@@ -158,7 +138,7 @@ func TestValidate_AllowsUnderscoreForOtherTypes(t *testing.T) {
 		r("_sip._tcp.example.jp", TypeSRV, 300, "10 60 5060 sip.example.jp."),
 	}}
 
-	if err := Validate(cs, zoneJP); err != nil {
+	if err := ValidateFormat(cs); err != nil {
 		t.Errorf("A/AAAA 以外でアンダースコアが拒否された: %v", err)
 	}
 }
@@ -172,13 +152,13 @@ func TestValidate_MXPreferenceRange(t *testing.T) {
 
 	for _, v := range ok {
 		cs := ChangeSet{Create: []Record{r("example.jp", TypeMX, 300, v)}}
-		if err := Validate(cs, zoneJP); err != nil {
+		if err := ValidateFormat(cs); err != nil {
 			t.Errorf("MX %q が拒否された: %v", v, err)
 		}
 	}
 	for _, v := range ng {
 		cs := ChangeSet{Create: []Record{r("example.jp", TypeMX, 300, v)}}
-		if err := Validate(cs, zoneJP); err == nil {
+		if err := ValidateFormat(cs); err == nil {
 			t.Errorf("MX %q が受け入れられた", v)
 		}
 	}
@@ -199,13 +179,13 @@ func TestValidate_SRVNumericRange(t *testing.T) {
 
 	for _, v := range ok {
 		cs := ChangeSet{Create: []Record{r("_sip._tcp.example.jp", TypeSRV, 300, v)}}
-		if err := Validate(cs, zoneJP); err != nil {
+		if err := ValidateFormat(cs); err != nil {
 			t.Errorf("SRV %q が拒否された: %v", v, err)
 		}
 	}
 	for _, v := range ng {
 		cs := ChangeSet{Create: []Record{r("_sip._tcp.example.jp", TypeSRV, 300, v)}}
-		if err := Validate(cs, zoneJP); err == nil {
+		if err := ValidateFormat(cs); err == nil {
 			t.Errorf("SRV %q が受け入れられた", v)
 		}
 	}
@@ -221,7 +201,7 @@ func TestValidate_TXTOverlongIsAccepted(t *testing.T) {
 	for _, n := range []int{255, 256, 600} {
 		value := `"` + strings.Repeat("a", n) + `"`
 		cs := ChangeSet{Create: []Record{r("t.example.jp", TypeTXT, 300, value)}}
-		if err := Validate(cs, zoneJP); err != nil {
+		if err := ValidateFormat(cs); err != nil {
 			t.Errorf("%d オクテットの character-string が拒否された: %v", n, err)
 		}
 	}
@@ -288,7 +268,7 @@ func TestValidate_TXTMultipleStringsMayExceed255InTotal(t *testing.T) {
 	value := `"` + part + `" "` + part + `"` // 合計 400 オクテット
 
 	cs := ChangeSet{Create: []Record{r("dkim._domainkey.example.jp", TypeTXT, 300, value)}}
-	if err := Validate(cs, zoneJP); err != nil {
+	if err := ValidateFormat(cs); err != nil {
 		t.Errorf("合計 400 オクテットの TXT が拒否された。合計長は制限しない: %v", err)
 	}
 }
@@ -298,7 +278,7 @@ func TestValidate_TXTRejectsUnparsable(t *testing.T) {
 	t.Parallel()
 
 	cs := ChangeSet{Create: []Record{r("t.example.jp", TypeTXT, 300, `"unterminated`)}}
-	err := Validate(cs, zoneJP)
+	err := ValidateFormat(cs)
 	if err == nil {
 		t.Fatal("引用符が閉じていない値が受け入れられた")
 	}
@@ -376,13 +356,13 @@ func TestValidate_TTLRange(t *testing.T) {
 
 	for _, ttl := range ok {
 		cs := ChangeSet{Create: []Record{r("www.example.jp", TypeA, ttl, "192.0.2.1")}}
-		if err := Validate(cs, zoneJP); err != nil {
+		if err := ValidateFormat(cs); err != nil {
 			t.Errorf("TTL %d が拒否された: %v", ttl, err)
 		}
 	}
 	for _, ttl := range ng {
 		cs := ChangeSet{Create: []Record{r("www.example.jp", TypeA, ttl, "192.0.2.1")}}
-		err := Validate(cs, zoneJP)
+		err := ValidateFormat(cs)
 		if err == nil {
 			t.Errorf("TTL %d が受け入れられた", ttl)
 			continue
@@ -397,7 +377,7 @@ func TestValidate_TTLRange(t *testing.T) {
 func TestValidate_EmptyChangeSet(t *testing.T) {
 	t.Parallel()
 
-	if err := Validate(ChangeSet{}, zoneJP); err != nil {
+	if err := ValidateFormat(ChangeSet{}); err != nil {
 		t.Errorf("空の変更セットが拒否された: %v", err)
 	}
 }
@@ -408,7 +388,7 @@ func TestValidate_RejectsUnsupportedType(t *testing.T) {
 
 	cs := ChangeSet{Create: []Record{r("d.example.jp", RecordType("DNAME"), 300, "t.example.jp.")}}
 
-	err := Validate(cs, zoneJP)
+	err := ValidateFormat(cs)
 	if err == nil {
 		t.Fatal("DNAME が受け入れられた")
 	}

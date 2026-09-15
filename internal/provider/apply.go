@@ -61,11 +61,6 @@ func (p *Provider) ApplyChanges(ctx context.Context, cs ChangeSet) error {
 	for _, g := range groups {
 		zone, zoneChanges := g.zone, g.changes
 
-		// ゾーンが分かって初めて判断できる違反 (apex NS の変更) をここで見る。
-		if err := ValidateForZone(zoneChanges, zone); err != nil {
-			return err
-		}
-
 		p.logApply(zone, zoneChanges)
 
 		err := p.backend.Apply(ctx, zone, zoneChanges)
@@ -133,9 +128,8 @@ type zoneGroup struct {
 // groupByZone は変更セットを書き込み先ゾーンごとに分ける。
 //
 // 一括更新はゾーン単位の操作であるため、ゾーンをまたぐ変更を 1 回では
-// 適用できない。書き込み先は最長一致で選ぶ。example.jp と sub.example.jp の
-// 双方を管理しているとき、a.sub.example.jp は sub.example.jp に属する
-// (data-model.md 3)。
+// 適用できない。書き込み先は [zoneIndex] が決める。読み取り側の帰属判定と
+// 同じ索引を使うことで、両者がずれないようにしている (research R12)。
 //
 // 解決できない名前があれば恒久的な失敗とする。本 provider はゾーンを
 // 作成しない (FR-013)。
@@ -143,29 +137,21 @@ type zoneGroup struct {
 // 戻り値はゾーン名の昇順に並べる。適用順が呼び出しごとに変わると、
 // ログの読み取りと障害時の再現が難しくなる。
 func groupByZone(cs ChangeSet, zones []Zone) ([]zoneGroup, error) {
-	byName := make(map[dnsname.Name]Zone, len(zones))
-	names := make([]dnsname.Name, 0, len(zones))
-	for _, z := range zones {
-		if z.Name.IsZero() {
-			continue
-		}
-		byName[z.Name] = z
-		names = append(names, z.Name)
-	}
-	zoneScope := dnsname.NewScope(names...)
-
+	idx := newZoneIndex(zones)
 	grouped := make(map[dnsname.Name]*ChangeSet)
+	owners := make(map[dnsname.Name]Zone)
 
 	assign := func(r Record, pick func(*ChangeSet) *[]Record) error {
-		zoneName, ok := zoneScope.LongestMatch(r.Name)
+		owner, ok := idx.Owner(r.Name)
 		if !ok {
 			return fmt.Errorf("%w: %w: %s を含むゾーンがありません",
 				ErrPermanent, ErrZoneNotFound, r.Name)
 		}
-		if grouped[zoneName] == nil {
-			grouped[zoneName] = &ChangeSet{}
+		if grouped[owner.Name] == nil {
+			grouped[owner.Name] = &ChangeSet{}
+			owners[owner.Name] = owner
 		}
-		dst := pick(grouped[zoneName])
+		dst := pick(grouped[owner.Name])
 		*dst = append(*dst, r)
 		return nil
 	}
@@ -188,7 +174,7 @@ func groupByZone(cs ChangeSet, zones []Zone) ([]zoneGroup, error) {
 
 	out := make([]zoneGroup, 0, len(grouped))
 	for name, changes := range grouped {
-		out = append(out, zoneGroup{zone: byName[name], changes: *changes})
+		out = append(out, zoneGroup{zone: owners[name], changes: *changes})
 	}
 	slices.SortFunc(out, func(a, b zoneGroup) int {
 		return strings.Compare(a.zone.Name.String(), b.zone.Name.String())

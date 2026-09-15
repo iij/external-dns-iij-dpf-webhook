@@ -139,3 +139,23 @@ func adjustRoundTrip(t *testing.T, h http.Handler, in []endpointJSON) []endpoint
 	}
 	return out
 }
+
+// FR-029: NS を含む要求は adjustendpoints でも恒久的な失敗として返す。
+//
+// 変換は POST /records と同じ経路 (toRecords) を通る。片方だけ通してしまうと、
+// 調整では受け付けたものが適用で拒否されることになり、ExternalDNS から見て
+// 挙動が一貫しない。
+func TestAdjustEndpoints_NSIs4xx(t *testing.T) {
+	t.Parallel()
+
+	backend := providertest.New().WithZone(testZone(t))
+	h := newHandler(t, dnsname.NewScope(dnsname.MustParse("example.jp")), backend)
+
+	rec := doPost(t, h, "/adjustendpoints", []endpointJSON{{
+		DNSName: "sub.example.jp", Targets: []string{"ns1.example.jp."}, RecordType: "NS", RecordTTL: 3600,
+	}})
+
+	if rec.Code < 400 || rec.Code >= 500 {
+		t.Errorf("状態コード = %d, want 4xx\n%s", rec.Code, rec.Body.String())
+	}
+}

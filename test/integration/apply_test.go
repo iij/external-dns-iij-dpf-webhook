@@ -190,14 +190,14 @@ func TestApply_ValidationFailureDoesNotReachBackend(t *testing.T) {
 	backend := providertest.New().WithZone(zoneJP())
 	p := provider.New(scopeJP(), backend, discardLogger())
 
-	// apex NS の削除は恒久的な失敗 (FR-029)。
+	// NS は種別ごと管理対象外であり、恒久的な失敗になる (FR-029)。
 	cs := provider.ChangeSet{
-		Delete: []provider.Record{rec("example.jp", provider.TypeNS, 3600, "ns1.example.jp.")},
+		Delete: []provider.Record{rec("example.jp", "NS", 3600, "ns1.example.jp.")},
 	}
 
 	err := p.ApplyChanges(t.Context(), cs)
 	if err == nil {
-		t.Fatal("apex NS の削除が受け入れられた")
+		t.Fatal("NS の削除が受け入れられた")
 	}
 	if !errors.Is(err, provider.ErrPermanent) {
 		t.Errorf("err = %v, want ErrPermanent", err)
@@ -317,5 +317,209 @@ func TestListRecords_DoesNotApply(t *testing.T) {
 	// 取得は適用を伴わない。ロックの取得も書き込みも発生しない。
 	if _, _, applies := backend.Counts(); applies != 0 {
 		t.Errorf("レコード取得で Apply が %d 回呼ばれた", applies)
+	}
+}
+
+// zones3 は親・子・孫の 3 ゾーンを返す。
+func zones3() (parent, child, grandchild provider.Zone) {
+	return provider.Zone{Name: dnsname.MustParse("example.jp"), ID: "z1"},
+		provider.Zone{Name: dnsname.MustParse("sub.example.jp"), ID: "z2"},
+		provider.Zone{Name: dnsname.MustParse("a.sub.example.jp"), ID: "z3"}
+}
+
+// appliedTo は zone へ適用された変更セットを集める。
+func appliedTo(backend *providertest.Backend, id string) []provider.ChangeSet {
+	var out []provider.ChangeSet
+	for _, a := range backend.Applied {
+		if a.Zone.ID == id {
+			out = append(out, a.ChangeSet)
+		}
+	}
+	return out
+}
+
+// FR-040: 親・子・孫が併存するとき、最も深く一致するゾーンだけが更新される。
+//
+// 適用先を誤ると、権威を持たない親ゾーンに影のレコードが作られる。名前解決は
+// 変わらないまま「成功した」と見えるため、運用者から最も気付きにくい。
+func TestApply_RoutesToDeepestZone(t *testing.T) {
+	t.Parallel()
+
+	parent, child, grandchild := zones3()
+
+	cases := []struct {
+		name     string
+		wantZone string
+	}{
+		{"www.example.jp", "z1"},
+		{"www.sub.example.jp", "z2"},
+		{"www.a.sub.example.jp", "z3"},
+	}
+
+	for _, c := range cases {
+		backend := providertest.New().WithZone(parent).WithZone(child).WithZone(grandchild)
+		p := provider.New(scopeJP(), backend, discardLogger())
+
+		cs := provider.ChangeSet{
+			Create: []provider.Record{rec(c.name, provider.TypeA, 300, "192.0.2.1")},
+		}
+		if err := p.ApplyChanges(t.Context(), cs); err != nil {
+			t.Fatalf("%s: ApplyChanges = error %v", c.name, err)
+		}
+
+		if len(backend.Applied) != 1 {
+			t.Fatalf("%s: 適用ゾーン数 = %d, want 1", c.name, len(backend.Applied))
+		}
+		if got := backend.Applied[0].Zone.ID; got != c.wantZone {
+			t.Errorf("%s: 適用先 = %s, want %s", c.name, got, c.wantZone)
+		}
+	}
+}
+
+// 孫ゾーンが存在しなければ、その名前は親ゾーンへ書かれる。
+func TestApply_FallsBackWhenChildZoneAbsent(t *testing.T) {
+	t.Parallel()
+
+	parent, child, _ := zones3()
+
+	backend := providertest.New().WithZone(parent).WithZone(child)
+	p := provider.New(scopeJP(), backend, discardLogger())
+
+	cs := provider.ChangeSet{
+		Create: []provider.Record{rec("www.a.sub.example.jp", provider.TypeA, 300, "192.0.2.1")},
+	}
+	if err := p.ApplyChanges(t.Context(), cs); err != nil {
+		t.Fatalf("ApplyChanges = error %v", err)
+	}
+
+	if len(backend.Applied) != 1 {
+		t.Fatalf("適用ゾーン数 = %d, want 1", len(backend.Applied))
+	}
+	if got := backend.Applied[0].Zone.ID; got != "z2" {
+		t.Errorf("適用先 = %s, want z2 (最も深く一致する sub.example.jp)", got)
+	}
+}
+
+// FR-042: 1 つの変更セットが複数ゾーンにまたがるとき、ゾーンごとに適用する。
+func TestApply_SplitsAcrossZones(t *testing.T) {
+	t.Parallel()
+
+	parent, child, grandchild := zones3()
+
+	backend := providertest.New().WithZone(parent).WithZone(child).WithZone(grandchild)
+	p := provider.New(scopeJP(), backend, discardLogger())
+
+	cs := provider.ChangeSet{
+		Create: []provider.Record{
+			rec("www.example.jp", provider.TypeA, 300, "192.0.2.1"),
+			rec("www.sub.example.jp", provider.TypeA, 300, "192.0.2.2"),
+			rec("www.a.sub.example.jp", provider.TypeA, 300, "192.0.2.3"),
+		},
+	}
+	if err := p.ApplyChanges(t.Context(), cs); err != nil {
+		t.Fatalf("ApplyChanges = error %v", err)
+	}
+
+	if len(backend.Applied) != 3 {
+		t.Fatalf("適用ゾーン数 = %d, want 3", len(backend.Applied))
+	}
+	for _, id := range []string{"z1", "z2", "z3"} {
+		got := appliedTo(backend, id)
+		if len(got) != 1 {
+			t.Errorf("ゾーン %s への適用回数 = %d, want 1", id, len(got))
+			continue
+		}
+		if len(got[0].Create) != 1 {
+			t.Errorf("ゾーン %s の作成件数 = %d, want 1", id, len(got[0].Create))
+		}
+	}
+}
+
+// FR-043: あるゾーンへの適用が、他のゾーンの内容に及ばない。
+//
+// 子ゾーンに属する名前のレコードを親ゾーンへ作らない。
+func TestApply_DoesNotWriteChildNamesToParentZone(t *testing.T) {
+	t.Parallel()
+
+	parent, child, _ := zones3()
+
+	backend := providertest.New().WithZone(parent).WithZone(child)
+	p := provider.New(scopeJP(), backend, discardLogger())
+
+	cs := provider.ChangeSet{
+		Create: []provider.Record{rec("www.sub.example.jp", provider.TypeA, 300, "192.0.2.1")},
+	}
+	if err := p.ApplyChanges(t.Context(), cs); err != nil {
+		t.Fatalf("ApplyChanges = error %v", err)
+	}
+
+	if got := appliedTo(backend, "z1"); len(got) != 0 {
+		t.Errorf("親ゾーンへ %d 件適用された。子ゾーンに属する名前は親へ書かない", len(got))
+	}
+	if got := appliedTo(backend, "z2"); len(got) != 1 {
+		t.Errorf("子ゾーンへの適用回数 = %d, want 1", len(got))
+	}
+}
+
+// FR-041: 含むゾーンがなければ恒久的な失敗。より浅いゾーンへ倒さない。
+func TestApply_NoOwningZoneIsPermanentFailure(t *testing.T) {
+	t.Parallel()
+
+	// 管理対象範囲には含まれるが、DPF 上に対応するゾーンがない。
+	backend := providertest.New().WithZone(
+		provider.Zone{Name: dnsname.MustParse("other.example.jp"), ID: "z9"})
+	p := provider.New(scopeJP(), backend, discardLogger())
+
+	cs := provider.ChangeSet{
+		Create: []provider.Record{rec("www.example.jp", provider.TypeA, 300, "192.0.2.1")},
+	}
+
+	err := p.ApplyChanges(t.Context(), cs)
+	if err == nil {
+		t.Fatal("帰属先のないレコードが受け入れられた")
+	}
+	if !errors.Is(err, provider.ErrPermanent) {
+		t.Errorf("err = %v, want ErrPermanent", err)
+	}
+	if _, _, applies := backend.Counts(); applies != 0 {
+		t.Errorf("解決できないのに Apply が %d 回呼ばれた", applies)
+	}
+}
+
+// SC-011 / FR-044: 書き込みと読み取りの往復が閉じる。
+//
+// 子ゾーンへ書いた値が親ゾーン由来として読み戻されたり、両ゾーンから 2 件
+// 返ったりすると、ExternalDNS は「まだ差分がある」と判断して同じ変更を出し
+// 続ける (差分の振動)。帰属の規則が 1 つしかないことで、これが起きない。
+func TestApply_ReadBackIsStableAcrossZones(t *testing.T) {
+	t.Parallel()
+
+	parent, child, grandchild := zones3()
+
+	backend := providertest.New().WithZone(parent).WithZone(child).WithZone(grandchild)
+	p := provider.New(scopeJP(), backend, discardLogger())
+
+	written := rec("www.a.sub.example.jp", provider.TypeA, 300, "192.0.2.3")
+	if err := p.ApplyChanges(t.Context(), provider.ChangeSet{
+		Create: []provider.Record{written},
+	}); err != nil {
+		t.Fatalf("ApplyChanges = error %v", err)
+	}
+
+	// 適用先のゾーンへ、書いた内容が入ったものとして読み戻す。
+	applied := backend.Applied[0]
+	backend.Records[applied.Zone.Name.String()] = applied.ChangeSet.Create
+
+	got, err := p.Records(t.Context())
+	if err != nil {
+		t.Fatalf("Records = error %v", err)
+	}
+
+	if len(got) != 1 {
+		t.Fatalf("読み戻し件数 = %d, want 1: %v", len(got), names(got))
+	}
+	if got[0].Name != written.Name || got[0].Type != written.Type {
+		t.Errorf("読み戻し = %s %s, want %s %s",
+			got[0].Name, got[0].Type, written.Name, written.Type)
 	}
 }

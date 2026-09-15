@@ -612,7 +612,8 @@ dpf api: status 400: 400 Bad Request: {"request_id":"...","error_details":[...],
 
 ## レコード種別と制約
 
-ExternalDNS が表現できる種別と DPF が提供する種別の交差である 9 種別を扱う。
+ExternalDNS が表現できる種別と DPF が提供する種別の交差から、`NS` を除いた
+8 種別を扱う。
 
 <!-- reference:record-types -->
 
@@ -623,7 +624,6 @@ ExternalDNS が表現できる種別と DPF が提供する種別の交差であ
 | `CNAME` | 別名 |
 | `TXT` | 文字列。ExternalDNS の所有権レジストリにも使われる |
 | `SRV` | サービスの位置 |
-| `NS` | 委任。**ゾーン apex の `NS` は対象外** |
 | `PTR` | 逆引き |
 | `MX` | メール交換 |
 | `NAPTR` | 名前解決の書き換え規則 |
@@ -636,11 +636,27 @@ ExternalDNS が表現できる種別と DPF が提供する種別の交差であ
 | `TXT` | character-string 1 つは 255 オクテットまで。**超える場合は自動分割される**。合計に上限はない |
 | `MX` | `<preference> <exchange>` の 2 項目。preference は `0`〜`65535` |
 | `SRV` | `<priority> <weight> <port> <target>` の 4 項目。数値は `0`〜`65535` |
-| **ゾーン apex の `NS`** | **作成・更新・削除のいずれも受け付けない** |
 | `SOA` | 扱わない。DPF 上に存在しても変更しない |
 
-対象外の種別 (`CAA` `DS` `HTTPS` `SVCB` `TLSA` `ANAME` `DNAME`) は一覧に返さず、
+対象外の種別 (`NS` `CAA` `DS` `HTTPS` `SVCB` `TLSA` `ANAME` `DNAME`) は一覧に返さず、
 変更も削除もしない。
+
+### `NS` を扱わない理由
+
+`NS` は ExternalDNS と DPF の双方が持つが、本サービスは扱わない。
+
+ゾーンカット (親ゾーンと子ゾーンの境目) では、委任の `NS` が親ゾーンに、同じ名前の
+apex `NS` が子ゾーンに置かれる。**名前も種別も同じで、意味だけが違う。** ExternalDNS の
+webhook API はレコードを名前と種別で表し、ゾーンを指す手段を持たないため、どちら側かを
+伝える経路がない。区別できないものを推測で更新すると、子ゾーンの権威 `NS` が親側の値で
+書き換わる。
+
+加えて、ゾーン apex の `NS` は DPF の一括更新が `overwrite_zone_apex_ns` を常に `false`
+で送るため、投入しても取り込まれない。受け付けて適用しないことは、部分的に成功した状態を
+成功として返さない原則に反する。
+
+ExternalDNS が Ingress や Service から算出するレコードに `NS` は現れない。ゾーンの委任と
+グルーは、DPF 上で直接管理する。
 
 ### 名前の扱い
 

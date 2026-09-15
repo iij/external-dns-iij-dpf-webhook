@@ -9,8 +9,12 @@
 # **破壊的操作を行う。** 検証用ゾーンでのみ実行する。
 #
 # 必要な設定:
-#   secrets.DPF_TOKEN           検証用ゾーンを操作できる DPF アクセストークン
-#   vars.DPF_TEST_ZONE_NAME     検証用ゾーン名
+#   secrets.DPF_TOKEN               検証用ゾーンを操作できる DPF アクセストークン
+#   vars.DPF_TEST_ZONE_NAME         検証用ゾーン名 (親)
+#   vars.DPF_TEST_CHILD_ZONE_NAME   親の配下に実在する子ゾーン名 (任意)
+#
+# 子ゾーンを設定すると、親子ゾーンが併存する環境での適用先の検証
+# (SC-010〜SC-012) が走る。未設定ならその検証はスキップされる。
 name: e2e
 
 on:
@@ -73,6 +77,7 @@ jobs:
               echo '|---|---|---|'
               echo '| シークレット | `DPF_TOKEN` | 検証用ゾーンを操作できる DPF アクセストークン |'
               echo '| 変数 | `DPF_TEST_ZONE_NAME` | 検証用ゾーン名 (例: `sub.example.jp.`) |'
+            echo '| 変数 | `DPF_TEST_CHILD_ZONE_NAME` | 親子ゾーン検証用の子ゾーン名 (任意、例: `a.sub.example.jp.`) |'
               echo
               echo '**破壊的操作を行います。本番ゾーンを指定しないでください。**'
             } >> "$GITHUB_STEP_SUMMARY"
@@ -110,6 +115,8 @@ jobs:
           # テストが GitHub の命名を知る必要はない。
           DPF_E2E_TOKEN_FILE: ${{ steps.creds.outputs.token_file }}
           DPF_E2E_ZONE: ${{ vars.DPF_TEST_ZONE_NAME }}
+          # 親子ゾーンの検証用。未設定なら当該テストはスキップする。
+          DPF_E2E_CHILD_ZONE: ${{ vars.DPF_TEST_CHILD_ZONE_NAME }}
         run: |
           # -count=1 でキャッシュを使わせない。実環境への到達が目的であり、
           # 前回の結果を再利用しては検証にならない。

@@ -29,10 +29,13 @@ var (
 	// 形式違反、権限不足、ゾーン解決不能、トークン取得失敗が該当する。
 	ErrPermanent = errors.New("provider: permanent failure")
 
-	// ErrUnsupportedType は対応リスト外のレコード種別を表す。恒久的な障害の一種。
+	// ErrUnsupportedType は対応リスト外のレコード種別を表す。恒久的な障害の一種であり、
+	// 生成時に必ず ErrPermanent と併せて包む。errors.Is(err, ErrPermanent) だけで
+	// 再試行の可否を判断できるようにするため (FR-016、FR-028)。
 	ErrUnsupportedType = errors.New("provider: unsupported record type")
 
-	// ErrZoneNotFound は書き込み先のゾーンを解決できないことを表す。恒久的な障害の一種。
+	// ErrZoneNotFound は書き込み先のゾーンを解決できないことを表す。恒久的な障害の一種であり、
+	// ErrUnsupportedType と同じく生成時に ErrPermanent と併せて包む。
 	ErrZoneNotFound = errors.New("provider: zone not found")
 )
 

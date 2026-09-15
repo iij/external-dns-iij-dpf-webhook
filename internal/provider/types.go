@@ -22,16 +22,22 @@ type RecordType string
 
 // 対応するレコード種別。
 //
-// ExternalDNS が表現できる種別 (KnownRecordTypes) と DPF が提供する種別の交差である
-// 9 種別 (FR-026)。DPF のみが持つ SOA/CAA/DS/HTTPS/SVCB/TLSA/ANAME は
+// ExternalDNS が表現できる種別 (KnownRecordTypes) と DPF が提供する種別の交差から、
+// NS を除いた 8 種別 (FR-026)。DPF のみが持つ SOA/CAA/DS/HTTPS/SVCB/TLSA/ANAME は
 // ExternalDNS 側に対応表現がなく、ExternalDNS のみが持つ DNAME は DPF 側にない。
+//
+// NS は交差にありながら除外する (FR-029)。ゾーンカットでは委任の NS (親ゾーン側) と
+// apex の NS (子ゾーン側) が名前も種別も同じまま両側に存在し、ExternalDNS が渡す
+// 名前と種別だけではどちら側かを指せない。加えて apex の NS は DPF の一括更新が
+// overwrite_zone_apex_ns を常に false で送るため投入しても取り込まれず、受け付けて
+// 適用しないことは FR-012 に反する。ExternalDNS が Ingress や Service から算出する
+// レコードに NS は現れないため、除外による損失はない (research R12)。
 const (
 	TypeA     RecordType = "A"
 	TypeAAAA  RecordType = "AAAA"
 	TypeCNAME RecordType = "CNAME"
 	TypeTXT   RecordType = "TXT"
 	TypeSRV   RecordType = "SRV"
-	TypeNS    RecordType = "NS"
 	TypePTR   RecordType = "PTR"
 	TypeMX    RecordType = "MX"
 	TypeNAPTR RecordType = "NAPTR"
@@ -39,7 +45,7 @@ const (
 
 // supportedRecordTypes は対応する種別の許可リスト。
 var supportedRecordTypes = []RecordType{
-	TypeA, TypeAAAA, TypeCNAME, TypeTXT, TypeSRV, TypeNS, TypePTR, TypeMX, TypeNAPTR,
+	TypeA, TypeAAAA, TypeCNAME, TypeTXT, TypeSRV, TypePTR, TypeMX, TypeNAPTR,
 }
 
 // SupportedRecordTypes は対応する種別を返す。
@@ -52,7 +58,7 @@ func SupportedRecordTypes() []RecordType {
 func ParseRecordType(s string) (RecordType, error) {
 	t := RecordType(s)
 	if !slices.Contains(supportedRecordTypes, t) {
-		return "", fmt.Errorf("%w: %q", ErrUnsupportedType, s)
+		return "", fmt.Errorf("%w: %w: %q", ErrPermanent, ErrUnsupportedType, s)
 	}
 	return t, nil
 }

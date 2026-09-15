@@ -184,6 +184,36 @@ func TestPostRecords_MalformedBodyIs4xx(t *testing.T) {
 	}
 }
 
+// FR-029 / FR-028: NS を含む要求は恒久的な失敗として返す。
+//
+// NS は対応レコード種別ではない。ゾーンカットでは委任の NS (親ゾーン側) と
+// apex の NS (子ゾーン側) が同じ名前・同じ種別で両側に存在し、上流仕様が渡す
+// 名前と種別だけでは区別できないためである。
+//
+// 黙って読み飛ばさず失敗として返すのは、要求された変更を実行しないまま成功を
+// 返すことになり、FR-012 に反するためである。
+func TestPostRecords_NSIs4xx(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"example.jp", "sub.example.jp"} {
+		backend := providertest.New().WithZone(testZone(t))
+		h := newHandler(t, dnsname.NewScope(dnsname.MustParse("example.jp")), backend)
+
+		rec := doPost(t, h, "/records", changesJSON{
+			Create: []endpointJSON{{
+				DNSName: name, Targets: []string{"ns1.example.jp."}, RecordType: "NS", RecordTTL: 3600,
+			}},
+		})
+
+		if rec.Code < 400 || rec.Code >= 500 {
+			t.Errorf("%s: 状態コード = %d, want 4xx\n%s", name, rec.Code, rec.Body.String())
+		}
+		if _, _, applies := backend.Counts(); applies != 0 {
+			t.Errorf("%s: NS が拒否されたのに Apply が %d 回呼ばれた", name, applies)
+		}
+	}
+}
+
 // FR-002: 管理対象が空なら、変更を一切適用しない。
 func TestPostRecords_EmptyScopeAppliesNothing(t *testing.T) {
 	t.Parallel()

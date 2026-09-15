@@ -102,6 +102,10 @@ func (p *Provider) Records(ctx context.Context) ([]Record, error) {
 		return nil, err
 	}
 
+	// 帰属の判定は書き込み側と同じ索引で行う (FR-044、research R12)。
+	// 材料は全ゾーンであり、管理対象範囲で絞ったものではない。
+	idx := newZoneIndex(zones)
+
 	out := make([]Record, 0)
 	for _, z := range zones {
 		if !p.zoneIsRelevant(z) {
@@ -117,9 +121,18 @@ func (p *Provider) Records(ctx context.Context) ([]Record, error) {
 		}
 
 		for _, r := range records {
-			if p.scope.Contains(r.Name) {
-				out = append(out, r)
+			if !p.scope.Contains(r.Name) {
+				continue
 			}
+			// 読み取り元が帰属先でないレコードは返さない。権威を持つのは
+			// 最長一致ゾーンの側であり、親ゾーン側に残る値 (ゾーン作成前の
+			// 残骸、委任のグルー) は名前解決に影響しない。返すと同じ名前・
+			// 種別が 2 件返り、その削除要求が書き込み側で子ゾーンへ振られて
+			// 権威レコードを消す。
+			if !idx.OwnedBy(r.Name, z) {
+				continue
+			}
+			out = append(out, r)
 		}
 	}
 

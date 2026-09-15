@@ -223,3 +223,88 @@ func TestFilters_EmptyScope(t *testing.T) {
 		t.Errorf("filters = %v, want 空", got)
 	}
 }
+
+// FR-044: 親ゾーン側に残るレコードは、レコード一覧に含めない。
+//
+// 権威を持つのは最長一致ゾーンの側である。親ゾーンに子ゾーン配下の名前の
+// レコードが残っていても、それは名前解決に影響しない。
+//
+// 両方返すと、ExternalDNS は同じ名前・種別のレコードを 2 件見ることになる。
+// さらに悪いことに、親側の残骸を見た削除要求は書き込み時に最長一致で子ゾーンへ
+// 振られ、**子ゾーンの権威レコードを消す**。読み取りと書き込みの帰属を同じ
+// 規則に揃えることで、この経路を断つ (research R12)。
+func TestList_ExcludesRecordsOwnedByChildZone(t *testing.T) {
+	t.Parallel()
+
+	parent := provider.Zone{Name: dnsname.MustParse("example.jp"), ID: "z1"}
+	child := provider.Zone{Name: dnsname.MustParse("sub.example.jp"), ID: "z2"}
+
+	backend := providertest.New().
+		// 親ゾーンに、子ゾーン配下の名前のレコードが残っている。
+		WithZone(parent,
+			rec("www.example.jp", provider.TypeA, 300, "192.0.2.1"),
+			rec("www.sub.example.jp", provider.TypeA, 300, "192.0.2.99")).
+		// 子ゾーンが権威を持つ側。
+		WithZone(child, rec("www.sub.example.jp", provider.TypeA, 300, "192.0.2.2"))
+
+	p := provider.New(scopeJP(), backend, discardLogger())
+
+	got, err := p.Records(t.Context())
+	if err != nil {
+		t.Fatalf("Records = error %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("件数 = %d, want 2: %v", len(got), names(got))
+	}
+
+	// www.sub.example.jp は 1 件だけ。値は子ゾーン側のもの。
+	var found int
+	for _, r := range got {
+		if r.Name.String() != "www.sub.example.jp." {
+			continue
+		}
+		found++
+		if len(r.Values) != 1 || r.Values[0] != "192.0.2.2" {
+			t.Errorf("値 = %v, want [192.0.2.2] (子ゾーン側)", r.Values)
+		}
+	}
+	if found != 1 {
+		t.Errorf("www.sub.example.jp の件数 = %d, want 1: %v", found, names(got))
+	}
+}
+
+// 孫ゾーンまで併存しても、帰属は最も深いゾーンに決まる。
+func TestList_AttributesToDeepestZone(t *testing.T) {
+	t.Parallel()
+
+	zones := []struct {
+		zone  provider.Zone
+		value string
+	}{
+		{provider.Zone{Name: dnsname.MustParse("example.jp"), ID: "z1"}, "192.0.2.1"},
+		{provider.Zone{Name: dnsname.MustParse("sub.example.jp"), ID: "z2"}, "192.0.2.2"},
+		{provider.Zone{Name: dnsname.MustParse("a.sub.example.jp"), ID: "z3"}, "192.0.2.3"},
+	}
+
+	backend := providertest.New()
+	// 3 ゾーンすべてが www.a.sub.example.jp を持っている状態にする。
+	for _, e := range zones {
+		backend = backend.WithZone(e.zone,
+			rec("www.a.sub.example.jp", provider.TypeA, 300, e.value))
+	}
+
+	p := provider.New(scopeJP(), backend, discardLogger())
+
+	got, err := p.Records(t.Context())
+	if err != nil {
+		t.Fatalf("Records = error %v", err)
+	}
+
+	if len(got) != 1 {
+		t.Fatalf("件数 = %d, want 1: %v", len(got), names(got))
+	}
+	if len(got[0].Values) != 1 || got[0].Values[0] != "192.0.2.3" {
+		t.Errorf("値 = %v, want [192.0.2.3] (孫ゾーン a.sub.example.jp)", got[0].Values)
+	}
+}

@@ -12,10 +12,11 @@ import (
 
 // レコード種別の対応付け。
 //
-// DPF が定義する種別は 16 個、ExternalDNS が表現できる種別は 10 個であり、
-// 本サービスが扱うのはその交差の 9 個である (FR-026)。
+// DPF が定義する種別は 16 個、ExternalDNS が表現できる種別は 10 個である。
+// 交差は 9 個だが、本サービスが扱うのは NS を除いた 8 個である (FR-026)。
 //
-//	交差 (9)          : A AAAA CNAME TXT SRV NS PTR MX NAPTR
+//	対応 (8)          : A AAAA CNAME TXT SRV PTR MX NAPTR
+//	交差だが除外 (1)  : NS                                → 管理対象外 (FR-029、research R12)
 //	DPF のみ (7)      : SOA CAA DS HTTPS SVCB TLSA ANAME  → 管理対象外 (FR-027)
 //	ExternalDNS のみ  : DNAME                             → 適用しない (FR-028)
 //
@@ -26,7 +27,6 @@ var typeToDPF = map[provider.RecordType]dpfapi.RecordsRrtype{
 	provider.TypeCNAME: dpfapi.RECORDSRRTYPE_CNAME,
 	provider.TypeTXT:   dpfapi.RECORDSRRTYPE_TXT,
 	provider.TypeSRV:   dpfapi.RECORDSRRTYPE_SRV,
-	provider.TypeNS:    dpfapi.RECORDSRRTYPE_NS,
 	provider.TypePTR:   dpfapi.RECORDSRRTYPE_PTR,
 	provider.TypeMX:    dpfapi.RECORDSRRTYPE_MX,
 	provider.TypeNAPTR: dpfapi.RECORDSRRTYPE_NAPTR,
@@ -48,7 +48,7 @@ var typeFromDPF = func() map[dpfapi.RecordsRrtype]provider.RecordType {
 func toDPF(t provider.RecordType) (dpfapi.RecordsRrtype, error) {
 	d, ok := typeToDPF[t]
 	if !ok {
-		return "", fmt.Errorf("%w: %q", provider.ErrUnsupportedType, t)
+		return "", fmt.Errorf("%w: %w: %q", provider.ErrPermanent, provider.ErrUnsupportedType, t)
 	}
 	return d, nil
 }

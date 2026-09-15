@@ -251,6 +251,82 @@ constitution の改訂で生じた作業。いずれも規範として MUST で�
 
 ---
 
+## Phase 8: 改訂の基盤 — `NS` の除外 (US5 をブロックする)
+
+**Purpose**: `NS` を対応レコード種別から外す (FR-026、FR-029、research R12)。
+ゾーンカットでは委任の `NS` (親側) と apex の `NS` (子側) が名前も種別も同じまま
+両側に存在し、ExternalDNS が渡す名前と種別だけでは区別できない。US5 の `NS` に関する
+受け入れ条件はここが済まないと満たせず、US1 の読み取りと US2 の適用の挙動も変わるため、
+ストーリーより先に行う。
+
+**⚠️ 注意**: `test/docs/reference_test.go:412` が `docs/reference.md` の `record-types` 表を
+`provider.SupportedRecordTypes()` と突き合わせる。T120 を済ませるまで
+`go test ./test/docs/` は失敗したままになる。これは想定どおりであり、
+検査を緩めて回避しない。
+
+### Tests for `NS` の除外 ⚠️ 先に書いて失敗を確認する
+
+- [X] T103 [P] `internal/provider/validate_test.go` の `NS` 関連テストを書き換える。`TestValidate_RejectsApexNSDeletion` / `TestValidate_AllowsNonApexNSDeletion` / `TestValidate_RejectsApexNSModification` を削除し、「`NS` はゾーンによらず未対応種別として恒久的な失敗になる」ことを固定するテストへ置き換える。許可リストに `NS` が残っている時点では失敗する
+- [X] T104 [P] `internal/dpf/rrtype_test.go` から `{provider.TypeNS, dpfapi.RECORDSRRTYPE_NS}` の対応を外し、DPF の `NS` が provider の種別へ変換されないこと (読み取りで除外されること) を固定する
+- [X] T105 [P] `test/integration/apply_test.go` の apex `NS` 削除ケース (195 行目付近) を、「`NS` の変更要求が種別を理由に恒久的な失敗となる」ケースへ書き換える
+- [X] T106 [P] `test/integration/list_records_test.go` に、DPF が `NS` を返してもレコード一覧に含まれないことのテストを追加する (FR-029)
+- [X] T107 [P] `test/contract/records_post_test.go` と `test/contract/adjustendpoints_test.go` に、`NS` を含む要求が `4xx` (恒久的な失敗) になることのテストを追加する。両エンドポイントとも `toRecords` が最初の未対応種別で打ち切る経路を通る (contracts/webhook-api.md)
+
+### Implementation for `NS` の除外
+
+- [X] T108 `internal/provider/types.go` から `TypeNS` 定数と `supportedRecordTypes` の `TypeNS` を削除し、種別を説明するコメントを 8 種別へ改める (FR-026)
+- [X] T109 [P] `internal/dpf/rrtype.go` から `provider.TypeNS` の対応付けを削除し、冒頭コメント (15〜20 行目) の「交差 (9)」を「交差は 9 だが `NS` を除外して 8」へ改める (research R6)
+- [X] T110 `internal/provider/validate.go` から `validateApexNSModification`、`ValidateForZone`、`Validate` を削除する。ゾーンが分かって初めて判断できる制約が 1 つもなくなるため、この継ぎ目を空のまま残さない (plan.md 設計上の注意点)
+- [X] T111 `internal/provider/apply.go` の `ValidateForZone(zoneChanges, zone)` 呼び出しと、その直前の注釈コメント (64 行目付近) を削除する (T110 に依存)
+- [X] T112 `internal/provider/validate_test.go` の `Validate(cs, zoneJP)` 呼び出しをすべて `ValidateFormat(cs)` へ置き換える。`zoneJP` が未使用になれば併せて削除する (T110 に依存)
+
+**Checkpoint**: `go test ./internal/... ./test/integration/ ./test/contract/` が通る。`test/docs` は T120 まで失敗したまま
+
+---
+
+## Phase 9: User Story 5 - 親子・孫ゾーンが併存する環境での適用先の決定 (Priority: P2)
+
+**Goal**: 親・子・孫のゾーンが DPF 上に併存する環境で、名前の帰属先ゾーンだけが更新され、
+他のゾーンの内容が変わらない。読み取りと書き込みの帰属判定が同じ規則に従う。
+
+**Independent Test**: `example.jp` / `sub.example.jp` / `a.sub.example.jp` の 3 ゾーンを
+DPF 上に用意し、各ゾーンに属する名前のレコードの作成・更新・削除を要求する。それぞれが
+最も深く一致するゾーンにのみ現れ、他の 2 ゾーンの内容が変わらないことを確認する
+(quickstart.md 7)。
+
+### Tests for User Story 5 ⚠️ 先に書いて失敗を確認する
+
+- [X] T113 [P] [US5] `internal/provider/zoneindex_test.go` にゾーン索引のテストを書く。最長一致で最も深いゾーンを選ぶこと、孫ゾーンが不在なら親へ下がること、ゾーン apex 自身がそのゾーンに属すること、該当ゾーンなしを報告すること、ゼロ値のゾーンを索引の材料から除くこと
+- [X] T114 [P] [US5] `test/integration/list_records_test.go` に、親ゾーンに子ゾーン配下の名前のレコードが残っている場合、それがレコード一覧に含まれず、子ゾーン側の 1 件だけが返ることのテストを追加する (FR-044)
+- [X] T115 [P] [US5] `test/integration/apply_test.go` に親子孫ゾーンの適用テストを追加する。3 階層それぞれへの振り分け、孫ゾーン不在時に親へ下がること、1 要求が複数ゾーンにまたがる場合の分割適用、一方のゾーンの失敗で要求全体が失敗すること (FR-040/FR-042)
+- [X] T116 [P] [US5] `test/integration/apply_test.go` に、親ゾーンへ残したレコードが適用によって変更も削除もされないことのテストを追加する (FR-043、SC-013)。**読み取りと書き込みの帰属がずれると、ここが落ちる**
+- [X] T116a [P] [US5] `test/integration/apply_test.go` に、3 ゾーン併存下で適用した内容を読み戻したとき、書き込んだゾーンに帰属したまま 1 件だけ返ることのテストを追加する (SC-011)。書き込みと読み取りの往復が閉じないと ExternalDNS が同じ差分を出し続ける
+
+### Implementation for User Story 5
+
+- [X] T117 [US5] `internal/provider/zoneindex.go` を新設し、ゾーン一覧から名前の帰属先を解決する索引を実装する。材料は `ListZones` の全件とし、管理対象範囲 (domain filter) で絞らない。判定は `dnsname.Scope.LongestMatch` に委ね、`strings` を用いない (data-model.md 3、research R12)
+- [X] T118 [US5] `internal/provider/apply.go` の `groupByZone` を、自前のスコープ構築をやめて `zoneindex` を使う形へ書き換える。帰属の判定をこの関数から取り除く (FR-040、T117 に依存)
+- [X] T119 [US5] `internal/provider/provider.go` の `Records` を、読み取り元ゾーンが帰属先と一致するレコードだけを返す形へ書き換える。索引は `ListZones` の結果から 1 度だけ作り、ゾーンごとのループの外に置く (FR-044、T117 に依存)
+
+**Checkpoint**: US5 の受け入れシナリオ 1〜10 が満たされる。`go test ./...` が `test/docs` を除いて通る
+
+---
+
+## Phase 10: 改訂の仕上げ (文書と実環境検証)
+
+**Purpose**: 実装の変更に文書と CI を追随させる
+
+- [X] T120 [P] `docs/reference.md` の `record-types` 表から `NS` の行を削除する。`test/docs/reference_test.go` が `provider.SupportedRecordTypes()` と突き合わせるため、これで `go test ./test/docs/` が通るようになる (T108 に依存)
+- [X] T121 [P] `README.md` の対応レコード種別を 9 種別から 8 種別へ改め (25・28 行目)、「`NS` は扱うが apex は対象外」の段落 (38〜41 行目) を、`NS` を扱わない旨とその理由へ置き換える。T078 が書いた内容の差し替えにあたる
+- [X] T122 [P] `README.md` に、親子・孫ゾーンが DPF 上に併存する場合の挙動を追記する。最長一致で最も深いゾーンが更新されること、親ゾーン側に残る値は読み取られず変更もされないこと、ゾーンの委任とグルーは管理対象外であること
+- [X] T123 `test/e2e/` に親子ゾーンの振り分けを確認するテストを追加し、`.github/workflows/e2e.yml` から実行する。**`concurrency` による並列抑止の対象に含める** — 検証用ゾーンは共有される状態であり、同時実行は互いの変更を取り消し合う (constitution v2.1.0、SC-010/SC-012)。**適用後に読み戻して差分が残らないことまで確認する** (SC-011)
+- [X] T124 親子・孫の関係にある検証用ゾーンを DPF 上に用意し、そのゾーン名をリポジトリシークレットへ追加したうえで、`.github/workflows/e2e.yml` の `env` から T123 のテストへ渡す。**ゾーンの用意は環境側の作業であり、これがないと T123 は実行できない** (quickstart.md 前提、T102 と同じ性質)
+- [X] T125 `golangci-lint run` と `go vet ./...` を実行し、`NS` の除去と `ValidateForZone` の削除で未使用になった識別子・import・テストヘルパが残っていないことを確認する
+
+**Checkpoint**: `make all` が通る。spec・plan・data-model・contracts・quickstart・README・`docs/reference.md` と実装が一致する
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -259,6 +335,9 @@ constitution の改訂で生じた作業。いずれも規範として MUST で�
 - **Foundational (Phase 2)**: Setup の完了に依存。**全ユーザーストーリーをブロックする**
 - **User Stories (Phase 3〜6)**: Foundational の完了に依存
 - **Polish (Phase 7)**: 対象とするストーリーの完了に依存
+- **`NS` の除外 (Phase 8)**: Phase 3〜6 の完了に依存。**US5 をブロックする**
+- **US5 (Phase 9)**: Phase 8 の完了に依存
+- **改訂の仕上げ (Phase 10)**: Phase 8・9 の完了に依存
 
 ### User Story Dependencies
 
@@ -269,6 +348,10 @@ constitution の改訂で生じた作業。いずれも規範として MUST で�
 - **US3 (P3)**: Foundational 完了後に開始できる。単独でも契約テストは通るが、
   価値が出るのは US2 と組み合わせたとき (差分の振動の防止)
 - **US4 (P3)**: Foundational 完了後に開始できる。観測対象があるのは US1・US2 の後
+- **US5 (P2)**: **US1・US2 と Phase 8 の完了に依存する**。他ストーリーと違い独立して
+  着手できない。読み取り (US1) と適用 (US2) の双方の帰属判定を差し替えるためである。
+  `NS` の除外 (Phase 8) が先なのは、ゾーンカットの両側問題を種別の除外で先に消して
+  おかないと、ゾーン索引だけでは US5 の受け入れ条件を満たせないため
 
 ### Within Each User Story
 
@@ -284,6 +367,10 @@ constitution の改訂で生じた作業。いずれも規範として MUST で�
   T030 は全群の完了に依存する
 - 各ストーリーのテストタスク ([P] 付き) はすべて並行して書ける
 - Foundational 完了後、US1〜US4 を別々の担当者が並行して進められる
+- Phase 8 のテスト (T103〜T107) は 5 本すべて別ファイルで並行できる。実装側は
+  T109 のみ並行可能で、T108 → T110 → T111・T112 は同一ファイル群を触るため直列
+- Phase 9 のテスト (T113〜T116) は並行できる。実装は T117 が T118・T119 をブロックする
+- Phase 10 の文書タスク (T120〜T122) は 3 本とも並行できる
 
 ---
 

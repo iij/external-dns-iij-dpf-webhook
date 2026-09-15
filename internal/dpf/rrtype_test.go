@@ -11,8 +11,8 @@ import (
 	"github.com/iij/external-dns-iij-dpf-webhook/internal/provider"
 )
 
-// FR-026: 対応するのは 9 種別。
-// ExternalDNS が表現できる種別と DPF が提供する種別の交差である。
+// FR-026: 対応するのは 8 種別。
+// ExternalDNS が表現できる種別と DPF が提供する種別の交差から、NS を除いたもの。
 func TestToDPF_SupportedTypes(t *testing.T) {
 	t.Parallel()
 
@@ -25,7 +25,6 @@ func TestToDPF_SupportedTypes(t *testing.T) {
 		{provider.TypeCNAME, dpfapi.RECORDSRRTYPE_CNAME},
 		{provider.TypeTXT, dpfapi.RECORDSRRTYPE_TXT},
 		{provider.TypeSRV, dpfapi.RECORDSRRTYPE_SRV},
-		{provider.TypeNS, dpfapi.RECORDSRRTYPE_NS},
 		{provider.TypePTR, dpfapi.RECORDSRRTYPE_PTR},
 		{provider.TypeMX, dpfapi.RECORDSRRTYPE_MX},
 		{provider.TypeNAPTR, dpfapi.RECORDSRRTYPE_NAPTR},
@@ -48,7 +47,7 @@ func TestToDPF_SupportedTypes(t *testing.T) {
 	}
 }
 
-// 対応する 9 種別は往復しても変わらない。
+// 対応する 8 種別は往復しても変わらない。
 func TestRecordType_RoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -141,10 +140,24 @@ func TestDPFTypeCoverage(t *testing.T) {
 		}
 	}
 
-	if managed != 9 {
-		t.Errorf("管理対象種別 = %d, want 9", managed)
+	// 管理対象は 8 種別 (FR-026)。管理対象外は DPF のみの 7 種別に、
+	// 交差にありながら除外した NS を加えた 8 種別 (FR-029)。
+	if managed != 8 {
+		t.Errorf("管理対象種別 = %d, want 8", managed)
 	}
-	if unmanaged != 7 {
-		t.Errorf("管理対象外種別 = %d, want 7 (dpf-go の列挙が変わった可能性がある)", unmanaged)
+	if unmanaged != 8 {
+		t.Errorf("管理対象外種別 = %d, want 8 (dpf-go の列挙が変わった可能性がある)", unmanaged)
+	}
+}
+
+// FR-029: DPF の NS は provider の種別へ変換されない。
+//
+// これにより、DPF 上に NS が存在してもレコード一覧に現れない。ゾーンカットの
+// 両側にある NS を上位層へ見せないことが目的である (research R12)。
+func TestFromDPF_ExcludesNS(t *testing.T) {
+	t.Parallel()
+
+	if got, ok := fromDPF(dpfapi.RECORDSRRTYPE_NS); ok {
+		t.Errorf("fromDPF(NS) = %v, true; want ok=false", got)
 	}
 }
