@@ -192,7 +192,6 @@ DPF_E2E_SCALE=1 go test ./test/e2e/... -run TestScale -v -count=1 -timeout=40m
 | `DPF_E2E_SCALE` | (未設定) | `1` のとき規模の検証を実行する |
 | `DPF_E2E_SCALE_RECORDS` | `1000` | 作成する件数 |
 | `DPF_E2E_READ_BUDGET` | `5s` | `GET /records` に許す時間。ExternalDNS の `--webhook-provider-read-timeout` の既定 |
-| `DPF_E2E_WRITE_BUDGET` | `10s` | `POST /records` に許す時間。同 `--webhook-provider-write-timeout` の既定 |
 | `DPF_E2E_WAIT_NAME` | (未設定) | 反映を待ち合わせる名前。サイドカー検証から渡される |
 | `DPF_E2E_WAIT_STATE` | `present` | `present` または `absent` |
 | `DPF_E2E_WAIT_BUDGET` | `5m` | 待つ時間。SC-001 の上限 |

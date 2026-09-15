@@ -178,7 +178,7 @@ extraVolumes:
 # webhook への待ち受け時間。**既定では足りません。** 次節を参照してください。
 extraArgs:
   - --webhook-provider-read-timeout=30s
-  - --webhook-provider-write-timeout=120s
+  - --webhook-provider-write-timeout=605s
 ```
 
 ### ⚠ ServiceAccount トークンは無効化できません
@@ -209,12 +209,18 @@ ExternalDNS v0.22.0 の既定値は、本 provider の応答時間に対して�
 | フラグ | 上流の既定 | 推奨 | 理由 |
 |---|---|---|---|
 | `--webhook-provider-read-timeout` | `5s` | `30s` | レコード件数に比例して伸びます |
-| `--webhook-provider-write-timeout` | `10s` | `120s` | **適用は DPF の反映完了まで待ちます** |
+| `--webhook-provider-write-timeout` | `10s` | `605s` | **適用は DPF の反映完了まで待ちます** |
 
 書き込み側が要点です。本 provider は、DPF がゾーンを反映し終えるまで成功を
 返しません (FR-011)。反映は非同期ジョブであり、検証用ゾーンでの実測では
-**1 件の変更で約 8 秒**かかりました。既定の `10s` は実測に対してほとんど
-余裕がなく、ゾーンの規模や DPF 側の混み具合で超えます。
+**1 件の変更で約 8 秒**、1,000 件で **10〜13 秒**かかりました。既定の `10s` は
+実測に対してほとんど余裕がなく、ゾーンの規模や DPF 側の混み具合で超えます。
+
+**推奨値の 605 秒には根拠があります。** 本 provider は 1 回の適用を
+**10 分 (600 秒) で自ら打ち切ります**。クライアント側の待ち受け時間は、これを
+上回らなければなりません。600 秒ちょうどにすると両者が同着になり、ExternalDNS が
+先に切った場合、本 provider が返そうとしたエラー (DPF の応答と `request_id`) が
+捨てられます。5 秒の余裕はそのためのものです。
 
 超えた場合に起きることは、単なる遅延では済みません。ExternalDNS は要求を
 打ち切りますが、**DPF 側の反映はそのまま進みます**。ExternalDNS は失敗と

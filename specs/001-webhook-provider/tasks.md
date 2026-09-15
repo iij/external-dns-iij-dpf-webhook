@@ -343,6 +343,16 @@ DPF 上に用意し、各ゾーンに属する名前のレコードの作成・�
 
 **Checkpoint**: `make all` 通過。実環境の `TestTXTRoundTrip` が通ること (次回の e2e 実行で確認)
 
+### 実環境の 2 巡目で判明した修正 (時間予算)
+
+`scale` ジョブが初めて到達し、1,000 件の適用が上流既定の 10s を超えて落ちた
+(実測 11.4 / 12.7 / 10.2 秒)。**README が「既定では足りない」と述べている設定を
+予算に据えていたため、テストと文書が矛盾していた。**
+
+- [X] T133 `test/e2e/scale_test.go` から書き込みの時間予算と判定を外す。経過時間のログは残す。適用は dpf 層が `applyTimeout` (10 分) で自ら打ち切るため、クライアント側の待ち受け時間を予算にすると表明が常に真になる。読み取り側 (SC-008) の判定は残す
+- [X] T134 [P] `README.md` の `--webhook-provider-write-timeout` の推奨を `120s` から `605s` へ改め、根拠を書く。本 provider が 600 秒で自ら打ち切るため、クライアントはそれを上回る必要がある。同着だとエラーと `request_id` が捨てられる
+- [X] T135 [P] `.github/workflows/e2e-sidecar.yml` の同フラグを `605s` へ、`docs/development.md` から `DPF_E2E_WRITE_BUDGET` の行を削除する
+
 ### 未着手として残すもの
 
 - [ ] T132 `test/e2e` の失敗時に、取り込んだログを出力する。現在 `f.apply` は HTTP 応答の本文しか出さず、本文には設計上詳細が載らない。DPF の応答全文は `f.logs` にあるのに捨てられており、`request_id` が CI ログに残らない (constitution v2.2.0、research R13)

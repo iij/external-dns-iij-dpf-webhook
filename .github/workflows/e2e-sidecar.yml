@@ -178,7 +178,7 @@ jobs:
           # 待つ (FR-011)。README「待ち受け時間は既定では足りません」参照。
           extraArgs:
             - --webhook-provider-read-timeout=30s
-            - --webhook-provider-write-timeout=120s
+            - --webhook-provider-write-timeout=605s
 
           provider:
             name: webhook

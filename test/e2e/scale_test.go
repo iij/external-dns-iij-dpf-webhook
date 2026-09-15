@@ -21,19 +21,22 @@ import (
 //	DPF_E2E_SCALE          "1" のとき実行する
 //	DPF_E2E_SCALE_RECORDS  作成する件数 (既定 1000)
 //	DPF_E2E_READ_BUDGET    GET /records に許す時間 (既定 5s)
-//	DPF_E2E_WRITE_BUDGET   POST /records に許す時間 (既定 10s)
 
-// 既定の時間予算は ExternalDNS v0.22.0 の既定値に合わせる。
+// 読み取りの時間予算は ExternalDNS v0.22.0 の既定値 (5s) に合わせる。
+// これを超えると ExternalDNS 側が要求を打ち切る。
 //
-//	--webhook-provider-read-timeout   5s
-//	--webhook-provider-write-timeout  10s
+// **書き込みには時間予算を設けない。** 適用は DPF の反映完了まで待ち
+// (FR-011)、dpf 層が applyTimeout (10 分) で自ら打ち切る。クライアント側の
+// 待ち受け時間はこれを上回る必要があり (README は 605s を推奨)、その値を
+// 予算に据えると経過時間が超えることは原理的になく、表明が常に真になる。
 //
-// これを超えると ExternalDNS 側が要求を打ち切る。打ち切られた適用は、DPF 側の
-// 反映が進んでいても失敗として扱われ、ExternalDNS は同じ変更を再試行する。
-const (
-	defaultReadBudget  = 5 * time.Second
-	defaultWriteBudget = 10 * time.Second
-)
+// 上流の既定 (10s) を予算にするのも誤りだった。README が「既定では足りない」
+// と述べている設定を前提に落ちることになる。1,000 件の適用は実測で 10〜13 秒
+// かかり、DPF の非同期反映の固定コストが支配的である。
+//
+// 計測そのものには意味があるため、経過時間はログに残す。README はこのジョブの
+// ログを実測値の典拠として参照している。
+const defaultReadBudget = 5 * time.Second
 
 // TestScale は 1,000 件規模のゾーンでの取得と適用を確かめる (SC-008)。
 func TestScale(t *testing.T) {
@@ -45,7 +48,6 @@ func TestScale(t *testing.T) {
 
 	count := envInt(t, "DPF_E2E_SCALE_RECORDS", 1000)
 	readBudget := envDuration(t, "DPF_E2E_READ_BUDGET", defaultReadBudget)
-	writeBudget := envDuration(t, "DPF_E2E_WRITE_BUDGET", defaultWriteBudget)
 
 	// 名前には実行ごとに変わる印を入れる。前回の失敗が残したレコードと
 	// 混ざると、件数の表明が成り立たない。
@@ -73,14 +75,6 @@ func TestScale(t *testing.T) {
 			f.mustApply(t, wireChanges{Create: bulk})
 		})
 		t.Logf("%d 件の作成: %s", count, elapsed.Round(time.Millisecond))
-
-		// 適用は反映の完了を待つ (FR-011)。ExternalDNS の書き込み
-		// タイムアウトを超えると、反映が進んでいても失敗として扱われる。
-		if elapsed > writeBudget {
-			t.Errorf("適用に %s かかった。予算 %s を超えている。"+
-				"ExternalDNS 側の --webhook-provider-write-timeout を延ばす必要がある",
-				elapsed.Round(time.Millisecond), writeBudget)
-		}
 	})
 
 	t.Run("一覧の取得が待ち受け時間内に完了する", func(t *testing.T) {
