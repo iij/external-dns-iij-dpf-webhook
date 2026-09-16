@@ -68,6 +68,12 @@ func (p *Provider) WithTelemetry(metrics Recorder, tracer trace.Tracer) {
 	}
 }
 
+// Logger は組み立て時に与えられたロガーを返す。
+//
+// HTTP 層が同じ出力先と同じレベルで記録できるようにするためだけに公開する。
+// ロガーを 2 つ持つと、片方だけ debug になっている状態が起こりうる。
+func (p *Provider) Logger() *slog.Logger { return p.logger }
+
 // Filters は管理対象ドメインを返す。
 //
 // 空の範囲では空スライスを返す。nil を返すと応答が null になり、

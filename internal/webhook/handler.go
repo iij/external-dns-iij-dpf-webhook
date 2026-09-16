@@ -3,8 +3,11 @@
 package webhook
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 
 	"github.com/iij/external-dns-iij-dpf-webhook/internal/provider"
@@ -37,6 +40,51 @@ func (h *Handler) getRoot(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, filtersResponse{Filters: h.provider.Filters()})
 }
 
+// logRequestBody は要求本文を debug で記録し、読み直せる形にして返す。
+//
+// **ドメインの型は上流の全フィールドを持たない。** `updateOld`、`labels`、
+// `providerSpecific`、`setIdentifier` は provider.Record に写されないため、
+// 変換後のログでは見えない。差分が振動したとき、**ExternalDNS が「現在こうだ」と
+// 見なした値 (updateOld) と「こうしたい」(updateNew) を並べれば、どのフィールドを
+// 差分と判断したのかが ExternalDNS の計算結果として直接読める。**
+//
+// ExternalDNS 側は差分の判断をログに出さない (debug にしても出ない)。
+// したがって受け取った本文をそのまま残すほかない。
+//
+// debug でないときは本文を読まずにそのまま返す。1,000 件規模の要求を
+// 常時メモリへ写すことはしない。
+func (h *Handler) logRequestBody(r *http.Request) io.Reader {
+	logger := h.provider.Logger()
+	if !logger.Enabled(r.Context(), slog.LevelDebug) {
+		return r.Body
+	}
+
+	raw, err := io.ReadAll(io.LimitReader(r.Body, requestLogLimit+1))
+	if err != nil {
+		logger.DebugContext(r.Context(), "要求本文を読めませんでした", "error", err)
+		return r.Body
+	}
+
+	shown, truncated := raw, false
+	if len(shown) > requestLogLimit {
+		shown, truncated = shown[:requestLogLimit], true
+	}
+	logger.DebugContext(r.Context(), "要求本文",
+		"path", r.URL.Path,
+		"bytes", len(raw),
+		"truncated", truncated,
+		"body", string(shown),
+	)
+
+	// 読み切った分と、上限を超えて残っている分を繋ぎ直す。
+	return io.MultiReader(bytes.NewReader(raw), r.Body)
+}
+
+// requestLogLimit は debug に出す要求本文の上限。
+//
+// 原因は要求の構造に現れる。全文を出すと、規模の大きいゾーンでログが埋まる。
+const requestLogLimit = 16 << 10
+
 // getRecords は管理対象のレコード一覧を返す (GET /records)。
 func (h *Handler) getRecords(w http.ResponseWriter, r *http.Request) {
 	records, err := h.provider.Records(r.Context())
@@ -52,8 +100,10 @@ func (h *Handler) getRecords(w http.ResponseWriter, r *http.Request) {
 // 成功時は 204 No Content を返す。上流仕様がこの値を定めており、200 ではない。
 // 反映が完了する前に成功を返さない (FR-011)。
 func (h *Handler) postRecords(w http.ResponseWriter, r *http.Request) {
+	body := h.logRequestBody(r)
+
 	var c changes
-	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+	if err := json.NewDecoder(body).Decode(&c); err != nil {
 		// 解釈できない要求は再試行しても同じように失敗する。
 		WriteError(w, fmt.Errorf("%w: 要求を解釈できません: %w", provider.ErrPermanent, err))
 		return
