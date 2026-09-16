@@ -75,6 +75,28 @@ func MustParse(s string) Name {
 // 戻り値を判定や比較に使わないこと。比較は [Name] どうしで行う。
 func (n Name) String() string { return n.canonical }
 
+// Unqualified は末尾ドットを除いた表記を返す。ゼロ値では空文字列を返す。
+//
+// **ExternalDNS へ返す名前の表記である。** ExternalDNS の TXT レジストリは、
+// 所有権レコードの有無を「自分が生成した名前」と「provider が返した名前」の
+// **素の文字列一致**で照合する (registry/txt の txtRecordsSet)。生成側は末尾
+// ドットを持たないため、ドット付きで返すと必ず外れ、txt/force-update が付いて
+// 差分が永久に振動する (SC-007、004 の実環境で確認)。
+//
+// 落とすのは末尾ドットだけである。小文字化は保つ。ラベルの分割には
+// dns.SplitDomainName を用い、区切り文字の探索を行わない。
+//
+// 戻り値を判定や比較に使わないこと。比較は [Name] どうしで行う。
+func (n Name) Unqualified() string {
+	if n.IsZero() {
+		return ""
+	}
+	// ラベルへ分割してから繋ぎ直す。末尾ドットの除去を接尾辞の切り落としで
+	// 行わないのは、エスケープされたドットを含むラベルを壊さないためである
+	// (constitution v1.4.0)。
+	return strings.Join(dns.SplitDomainName(n.canonical), ".")
+}
+
 // IsZero は名前が実体化されていないことを報告する。
 func (n Name) IsZero() bool { return n.canonical == "" }
 

@@ -92,8 +92,12 @@ func TestGetRecords_NamesAreCanonical(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("件数 = %d, want 1", len(got))
 	}
-	if got[0].DNSName != "www.example.jp." {
-		t.Errorf("dnsName = %q, want %q", got[0].DNSName, "www.example.jp.")
+	// **末尾ドットを付けない。** ExternalDNS の TXT レジストリは、所有権レコードの
+	// 名前を「生成した文字列」と「provider が返した文字列」の**素の一致**で照合する
+	// (registry/txt の txtRecordsSet)。生成側は末尾ドットを持たないため、ドット付きで
+	// 返すと必ず外れ、txt/force-update が付いて差分が永久に振動する (SC-007)。
+	if got[0].DNSName != "www.example.jp" {
+		t.Errorf("dnsName = %q, want %q", got[0].DNSName, "www.example.jp")
 	}
 }
 
@@ -156,5 +160,37 @@ func TestGetRecords_EmptyScopeReturnsNothing(t *testing.T) {
 	// DPF を叩くのは無駄であり、レート制限を消費する。
 	if _, records, _ := backend.Counts(); records != 0 {
 		t.Errorf("ListRecords が %d 回呼ばれた。管理対象が空なら問い合わせない", records)
+	}
+}
+
+// 受け取った表記によらず、応答の名前は末尾ドットなしで揃う。
+//
+// **ExternalDNS の TXT レジストリが素の文字列一致で照合する箇所がある。**
+// 表記が揺れると、所有権レコードの有無の判定が外れる。
+func TestGetRecords_NameHasNoTrailingDot(t *testing.T) {
+	t.Parallel()
+
+	zone := provider.Zone{Name: dnsname.MustParse("example.jp"), ID: "z1"}
+	backend := providertest.New().WithZone(zone,
+		provider.Record{
+			Name:   dnsname.MustParse("WWW.Example.JP."),
+			Type:   provider.TypeA,
+			TTL:    300,
+			Values: []string{"192.0.2.1"},
+		})
+	h := newHandler(t, dnsname.NewScope(dnsname.MustParse("example.jp")), backend)
+
+	rec := doGet(t, h, "/records")
+
+	var got []endpointJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("解釈できない: %v\n%s", err, rec.Body.String())
+	}
+	if len(got) != 1 {
+		t.Fatalf("件数 = %d, want 1", len(got))
+	}
+	// 小文字化は保つ。落とすのは末尾ドットだけである。
+	if got[0].DNSName != "www.example.jp" {
+		t.Errorf("dnsName = %q, want %q", got[0].DNSName, "www.example.jp")
 	}
 }

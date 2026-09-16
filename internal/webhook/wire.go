@@ -127,7 +127,7 @@ func toEndpoint(r provider.Record) endpoint {
 		targets = []string{}
 	}
 	return endpoint{
-		DNSName:    r.Name.String(),
+		DNSName:    r.Name.Unqualified(),
 		Targets:    targets,
 		RecordType: r.Type.String(),
 		RecordTTL:  int64(r.TTL),

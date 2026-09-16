@@ -39,8 +39,9 @@ func TestAdjustEndpoints_ReturnsAdjusted(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("件数 = %d, want 1", len(got))
 	}
-	if got[0].DNSName != "www.example.jp." {
-		t.Errorf("dnsName = %q, want %q (正規化名で返す)", got[0].DNSName, "www.example.jp.")
+	// 末尾ドットを付けない (records_get_test.go の同じ表明を参照)。
+	if got[0].DNSName != "www.example.jp" {
+		t.Errorf("dnsName = %q, want %q", got[0].DNSName, "www.example.jp")
 	}
 }
 

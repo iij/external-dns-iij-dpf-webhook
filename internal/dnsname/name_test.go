@@ -174,3 +174,53 @@ func TestName_LabelsOfRoot(t *testing.T) {
 		t.Errorf("ルートの CountLabel() = %d, want 0", got)
 	}
 }
+
+// Unqualified は末尾ドットだけを落とす。
+//
+// ExternalDNS の TXT レジストリが素の文字列一致で照合する箇所があるため、
+// 応答の表記は ExternalDNS 側の表記に揃える必要がある (004 の実環境で確認)。
+func TestName_Unqualified(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"www.example.jp", "www.example.jp"},
+		{"www.example.jp.", "www.example.jp"},
+		// 小文字化は保つ。落とすのは末尾ドットだけである。
+		{"WWW.Example.JP.", "www.example.jp"},
+		{"example.jp", "example.jp"},
+		{"a.b.c.example.jp.", "a.b.c.example.jp"},
+	}
+
+	for _, c := range cases {
+		got := dnsname.MustParse(c.in).Unqualified()
+		if got != c.want {
+			t.Errorf("dnsname.MustParse(%q).Unqualified() = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// ゼロ値は空文字列を返す。
+func TestName_UnqualifiedZero(t *testing.T) {
+	t.Parallel()
+
+	var zero dnsname.Name
+	if got := zero.Unqualified(); got != "" {
+		t.Errorf("ゼロ値の Unqualified = %q, want 空文字列", got)
+	}
+}
+
+// 正規化名そのものは末尾ドットを保つ。DPF へはこちらを渡す。
+func TestName_StringKeepsTrailingDot(t *testing.T) {
+	t.Parallel()
+
+	n := dnsname.MustParse("www.example.jp")
+	if n.String() != "www.example.jp." {
+		t.Errorf("String() = %q, want %q", n.String(), "www.example.jp.")
+	}
+	if n.Unqualified() == n.String() {
+		t.Error("String() と Unqualified() が同じ表記になっている")
+	}
+}

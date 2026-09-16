@@ -359,6 +359,24 @@ DPF 上に用意し、各ゾーンに属する名前のレコードの作成・�
 
 ---
 
+## Phase 12: 実環境で判明した修正 (応答の名前の表記)
+
+サイドカー構成の検証で、差分が毎周回再適用される状態が続いた
+(`dns_record_changes_total` が 2 → 6)。**原因は応答の名前に付けていた末尾ドット
+だった。** ExternalDNS の TXT レジストリが所有権レコードの有無を素の文字列一致で
+照合し、生成側はドットを持たないため、照合が必ず外れて `txt/force-update` が付き、
+`providerSpecificChanged` が永久に真になっていた。
+
+- [X] T136 `internal/dnsname/name.go` に `Unqualified` を追加する。末尾ドットだけを落とし、小文字化は保つ。ラベルへ分割してから繋ぎ直し、接尾辞の切り落としで行わない (constitution v1.4.0)
+- [X] T137 `internal/webhook/wire.go` の `toEndpoint` が `Unqualified` を使うようにする。内部表現と DPF へ渡す値は正規化名のままとし、**変えるのは転送形だけ**とする
+- [X] T138 [P] 契約テストの表明を末尾ドットなしへ改め、受け取った表記によらず揃うことの表明を追加する
+- [X] T139 [P] `research.md` の R7 に訂正を記す。当初の「確認済み」が `plan` の正規化経路だけを見ており、素の比較を見落としていたこと、その帰結を明記する
+- [X] T140 [P] `contracts/webhook-api.md` を末尾ドットなし (MUST) へ改め、`spec.md` に FR-004a を追加する
+
+**Checkpoint**: `make all` 通過。次回の `e2e-sidecar` で差分が振動しないこと
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
