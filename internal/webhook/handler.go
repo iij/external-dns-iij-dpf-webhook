@@ -96,7 +96,7 @@ func (h *Handler) postAdjustEndpoints(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, toEndpoints(provider.Adjust(records)))
+	writeJSON(w, adjustEndpoints(in, provider.Adjust(records)))
 }
 
 // writeJSON は v を JSON として書く。

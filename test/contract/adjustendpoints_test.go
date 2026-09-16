@@ -159,3 +159,110 @@ func TestAdjustEndpoints_NSIs4xx(t *testing.T) {
 		t.Errorf("状態コード = %d, want 4xx\n%s", rec.Code, rec.Body.String())
 	}
 }
+
+// 解釈しないフィールドは、受け取った値をそのまま返す。
+//
+// **この応答は ExternalDNS のあるべき状態を置き換える** (上流
+// provider/webhook の AdjustEndpoints は、返された配列で入力を差し替える)。
+// 落とすと ExternalDNS 自身が組み立てた情報が消える。
+//
+// 実害が出たのは labels である。ExternalDNS は Ingress 由来の
+// `external-dns/resource=...` をここに載せ、TXT レジストリの所有権レコードを
+// このラベルから組み立てる。落とすと、DPF 上の所有権 TXT から resource が
+// 欠ける (実環境で確認)。
+//
+// 上流のサーバ側ヘルパ (provider/webhook/api/httpapi.go) は
+// `[]*endpoint.Endpoint` を直接 decode/encode するため、この問題が起きない。
+// 本 provider は転送形を自前で定義しているぶん、明示的に保つ必要がある。
+func TestAdjustEndpoints_PreservesUninterpretedFields(t *testing.T) {
+	t.Parallel()
+
+	backend := providertest.New().WithZone(testZone(t))
+	h := newHandler(t, dnsname.NewScope(dnsname.MustParse("example.jp")), backend)
+
+	rec := doPost(t, h, "/adjustendpoints", []map[string]any{{
+		"dnsName":       "www.example.jp",
+		"targets":       []string{"192.0.2.1"},
+		"recordType":    "A",
+		"recordTTL":     300,
+		"setIdentifier": "set-1",
+		"labels": map[string]string{
+			"external-dns/resource": "ingress/app/www",
+			"external-dns/owner":    "owner-1",
+		},
+		"providerSpecific": []map[string]string{
+			{"name": "prop", "value": "value-1"},
+		},
+	}})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状態コード = %d, want %d\n%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var got []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答を解釈できません: %v: %s", err, rec.Body.String())
+	}
+	if len(got) != 1 {
+		t.Fatalf("件数 = %d, want 1", len(got))
+	}
+
+	if v, _ := got[0]["setIdentifier"].(string); v != "set-1" {
+		t.Errorf("setIdentifier = %v, want set-1", got[0]["setIdentifier"])
+	}
+
+	labels, _ := got[0]["labels"].(map[string]any)
+	if v, _ := labels["external-dns/resource"].(string); v != "ingress/app/www" {
+		t.Errorf("labels[external-dns/resource] = %v, want ingress/app/www", labels["external-dns/resource"])
+	}
+	if v, _ := labels["external-dns/owner"].(string); v != "owner-1" {
+		t.Errorf("labels[external-dns/owner] = %v, want owner-1", labels["external-dns/owner"])
+	}
+
+	ps, _ := got[0]["providerSpecific"].([]any)
+	if len(ps) != 1 {
+		t.Fatalf("providerSpecific = %v, want 1 件", got[0]["providerSpecific"])
+	}
+	prop, _ := ps[0].(map[string]any)
+	if prop["name"] != "prop" || prop["value"] != "value-1" {
+		t.Errorf("providerSpecific[0] = %v, want {prop value-1}", prop)
+	}
+}
+
+// 調整の対象となるフィールドは、調整後の値になる。
+//
+// 保持と調整は両立する。保持を理由に調整をやめてはならない (FR-014)。
+func TestAdjustEndpoints_StillAdjustsWhilePreserving(t *testing.T) {
+	t.Parallel()
+
+	backend := providertest.New().WithZone(testZone(t))
+	h := newHandler(t, dnsname.NewScope(dnsname.MustParse("example.jp")), backend)
+
+	// 引用符のない TXT は引用符付きになる (FR-032c)。
+	rec := doPost(t, h, "/adjustendpoints", []map[string]any{{
+		"dnsName":    "t.example.jp",
+		"targets":    []string{"v=spf1 -all"},
+		"recordType": "TXT",
+		"recordTTL":  300,
+		"labels":     map[string]string{"external-dns/owner": "owner-1"},
+	}})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状態コード = %d, want %d\n%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var got []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答を解釈できません: %v", err)
+	}
+
+	targets, _ := got[0]["targets"].([]any)
+	if len(targets) != 1 || targets[0] != `"v=spf1 -all"` {
+		t.Errorf("targets = %v, want [\"v=spf1 -all\"] (引用符付き)", got[0]["targets"])
+	}
+
+	labels, _ := got[0]["labels"].(map[string]any)
+	if v, _ := labels["external-dns/owner"].(string); v != "owner-1" {
+		t.Errorf("調整と同時に labels が落ちた: %v", got[0]["labels"])
+	}
+}

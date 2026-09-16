@@ -5,6 +5,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 
@@ -35,6 +36,8 @@ func (p *Provider) ApplyChanges(ctx context.Context, cs ChangeSet) error {
 	// dpf 層が作る span はこの span の子として繋がる。
 	ctx, span := p.tracer.Start(ctx, "provider.ApplyChanges")
 	defer span.End()
+
+	p.logChangeSet(ctx, cs)
 
 	inScope := p.filterToScope(cs)
 	if inScope.IsEmpty() {
@@ -180,6 +183,39 @@ func groupByZone(cs ChangeSet, zones []Zone) ([]zoneGroup, error) {
 		return strings.Compare(a.zone.Name.String(), b.zone.Name.String())
 	})
 	return out, nil
+}
+
+// logChangeSet は受け取った変更セットを値まで含めて debug で記録する。
+//
+// [Provider.logApply] は対象と操作種別を記録するが (FR-020)、値は残さない。
+// **差分が振動したときは値が要る。** ExternalDNS が何を送ってきたかと、
+// [Provider.Records] が何を返したかを同じ実行の中で突き合わせられないと、
+// どのフィールドが食い違っているのか分からない。
+//
+// ExternalDNS 側は差分の判断をログに出さない (debug にしても出ない)。
+// したがって両側の値をこちらで残すほかない。
+//
+// debug に限るのは、件数に比例して出力が増えるためである。
+func (p *Provider) logChangeSet(ctx context.Context, cs ChangeSet) {
+	if !p.logger.Enabled(ctx, slog.LevelDebug) {
+		return
+	}
+
+	log := func(op string, records []Record) {
+		for _, r := range records {
+			p.logger.DebugContext(ctx, "変更セットを受け取りました",
+				"op", op,
+				"name", r.Name.String(),
+				"type", r.Type.String(),
+				"ttl", r.TTL,
+				"values", r.Values,
+			)
+		}
+	}
+
+	log(OpCreate, cs.Create)
+	log(OpUpdate, cs.UpdateTo)
+	log(OpDelete, cs.Delete)
 }
 
 // logApply は変更操作の内容を記録する (FR-020)。

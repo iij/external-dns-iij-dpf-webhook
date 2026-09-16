@@ -57,6 +57,10 @@ ExternalDNS が起動時に呼び、本 provider が扱うドメインの範囲�
   作らない
 - 名前は**正規化名 (小文字・末尾ドット) のまま返す**。境界での変換は行わない
   (research R7)
+- `setIdentifier`・`labels`・`providerSpecific` は**空のまま返す**。本 provider は
+  これらを保持しないため、あるかのように返さない。ExternalDNS の TXT レジストリは
+  所有権ラベルを TXT レコードから導くので、これで困らない。**調整の応答とは扱いが
+  異なる** (上記 `POST /adjustendpoints`)
 
 ### `POST /records` — 変更の適用
 
@@ -93,6 +97,20 @@ ExternalDNS が起動時に呼び、本 provider が扱うドメインの範囲�
 
 - 冪等であること。調整済みの入力に対して出力が変化しない (FR-015)
 - 調整不要の入力はそのまま返る
+- **解釈しないフィールド (`setIdentifier`、`labels`、`providerSpecific`) を、
+  受け取った値のまま返す (MUST)。落とさない (MUST NOT)。**
+  上流の `AdjustEndpoints` は**返された配列で入力を差し替える**
+  (`BaseProvider` の既定が `return endpoints, nil` であることがその前提を示す)。
+  落とすと ExternalDNS 自身が組み立てた情報が消える。
+
+  実害が出たのは `labels` である。ExternalDNS は Ingress 由来の
+  `external-dns/resource=...` をここに載せ、TXT レジストリの所有権レコードを
+  このラベルから組み立てる。落とすと DPF 上の所有権 TXT から `resource` が
+  欠ける (実環境で確認)。
+
+  上流のサーバ側ヘルパ (`provider/webhook/api/httpapi.go`) は
+  `[]*endpoint.Endpoint` を直接 decode/encode するため、この問題が起きない。
+  本 provider は転送形を自前で定義しているぶん、明示的に保つ必要がある
 
 ---
 
