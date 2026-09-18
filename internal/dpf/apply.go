@@ -55,6 +55,10 @@ func (c *Client) Apply(ctx context.Context, zone provider.Zone, cs provider.Chan
 			return Classify(err)
 		}
 
+		// **ガードより前に置く。** 投入前ガードは投入する集合を検査する。
+		// 印を付けた後の集合を検査しなければ、検査した集合と送る集合が違う。
+		applyManagedBy(set, cs)
+
 		if err := guard(current, set, cs); err != nil {
 			return err
 		}
