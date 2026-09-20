@@ -111,10 +111,10 @@ jobs:
           echo "検証に使うホスト名: ${host}"
 
       - name: buildx を用意する
-        uses: docker/setup-buildx-action@v4.3.0
+        uses: docker/setup-buildx-action@v4.4.0
 
       - name: イメージをビルドする
-        uses: docker/build-push-action@v7.3.0
+        uses: docker/build-push-action@v7.4.0
         with:
           context: .
           file: build/Containerfile
