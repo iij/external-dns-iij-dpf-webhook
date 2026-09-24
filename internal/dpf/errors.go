@@ -14,8 +14,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 
+	dpfapi "github.com/iij/dpf-go"
 	"github.com/iij/dpf-go/utils"
 
 	"github.com/iij/external-dns-iij-dpf-webhook/internal/provider"
@@ -51,6 +53,23 @@ func (e *apiError) Unwrap() error { return e.err }
 type apiBody interface {
 	Body() []byte
 }
+
+// apiStatusError は dpf-go が返す生の API エラー。dpf.GenericOpenAPIError が満たす。
+//
+// **具体型ではなく振る舞いで受ける。** dpf.GenericOpenAPIError は内部の項目を
+// 公開しておらず、状態コードを持つ値をテストから組み立てられない。振る舞いで
+// 受ければ、分類の規則そのものを機械的に確かめられる。
+type apiStatusError interface {
+	error
+	apiBody
+}
+
+// dpf-go の API エラーが振る舞いを満たすことを、コンパイル時に固定する。
+// **満たさなくなると分類が既定の経路へ落ち、恒久的な失敗が一時的になる。**
+// 静かに起きる変化であるため、ここで受け止める。
+//
+//nolint:errcheck // 代入ではなく、型が振る舞いを満たすことの表明である
+var _ apiStatusError = (*dpfapi.GenericOpenAPIError)(nil)
 
 // wrapAPIError は DPF API の応答とエラーを apiError に包む。
 //
@@ -128,6 +147,12 @@ func Classify(err error) error {
 		return fmt.Errorf("%w: ゾーンが他の操作でロックされています: %w", provider.ErrTemporary, err)
 	}
 
+	// 保持していたロックを他者に奪われた場合も一時的である。適用は反映まで
+	// 進んでいないため (dpf-go が編集の context を打ち切る)、やり直せばよい。
+	if errors.Is(err, utils.ErrNotLockHolder) {
+		return fmt.Errorf("%w: ゾーンのロックを他の操作に奪われました: %w", provider.ErrTemporary, err)
+	}
+
 	// 文脈の打ち切りは、時間切れであれ取り消しであれ再試行の余地がある。
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return fmt.Errorf("%w: %w", provider.ErrTemporary, err)
@@ -138,6 +163,15 @@ func Classify(err error) error {
 		return classifyStatus(apiErr.status, err)
 	}
 
+	// dpf-go の内側で完結する経路 (utils.ZoneApplier など) は、応答に手が
+	// 届かないため apiError に包めない。生の API エラーから状態コードを読む。
+	var statusErr apiStatusError
+	if errors.As(err, &statusErr) {
+		if status, ok := genericStatus(statusErr); ok {
+			return classifyStatus(status, withAPIBody(err, statusErr))
+		}
+	}
+
 	// 接続が成立しない、名前を解決できないといったネットワーク層の失敗は一時的。
 	var netErr net.Error
 	if errors.As(err, &netErr) {
@@ -145,6 +179,38 @@ func Classify(err error) error {
 	}
 
 	return fmt.Errorf("%w: %w", provider.ErrTemporary, err)
+}
+
+// genericStatus は dpf-go が返した API エラーから状態コードを読む。
+//
+// dpf.GenericOpenAPIError は状態コードを保持しない。**手がかりは Error() の
+// 先頭に HTTP の状態行が入ることだけ**である (生成コードが
+// `localVarHTTPResponse.Status` を入れ、詳細があればその後ろに続ける)。
+// ここから先頭の数値を読む。
+//
+// 読めない場合は false を返す。分類は既定の経路へ落ち、一時的になる。
+// **読み違えて恒久的に倒すより、分類しない方がよい** (Classify の方針)。
+func genericStatus(err error) (int, bool) {
+	head, _, _ := strings.Cut(err.Error(), " ")
+
+	status, convErr := strconv.Atoi(head)
+	if convErr != nil || status < 100 || status > 599 {
+		return 0, false
+	}
+	return status, true
+}
+
+// withAPIBody は DPF が返した応答本文をエラーのメッセージへ足す。
+//
+// dpf.GenericOpenAPIError の Error() は状態行と概要しか載せない。
+// **本文がないと 400 が返った理由が分からず、`request_id` も失われる。**
+// 本文は切り詰めない (apiError と同じ理由)。
+func withAPIBody(err error, body apiBody) error {
+	detail := strings.TrimSpace(string(body.Body()))
+	if detail == "" {
+		return err
+	}
+	return fmt.Errorf("%w: %s", err, detail)
 }
 
 // classifyStatus は HTTP 状態コードから分類を決める。

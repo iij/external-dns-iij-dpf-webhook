@@ -37,7 +37,7 @@ func wantOnlyMark(t *testing.T, labels map[string]string, where string) {
 func TestApplyManagedBy_SetsMarkOnChangedRecords(t *testing.T) {
 	t.Parallel()
 
-	current := []dpfapi.Record{
+	current := []dpfapi.OverwriteRecordsInner{
 		cur("keep.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1"),
 		cur("upd.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.2"),
 	}
@@ -89,7 +89,7 @@ func TestApplyManagedBy_LeavesUntouchedRecordsAlone(t *testing.T) {
 	manual := cur("manual.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.7")
 	manual.SetLabels(map[string]string{"env": "prod", "team": "web"})
 
-	current := []dpfapi.Record{manual}
+	current := []dpfapi.OverwriteRecordsInner{manual}
 	cs := provider.ChangeSet{
 		Create: []provider.Record{pr("new.example.jp", provider.TypeA, 60, "192.0.2.50")},
 	}
@@ -123,7 +123,7 @@ func TestApplyManagedBy_DiscardsOperatorLabelsOnChangedRecords(t *testing.T) {
 		UpdateTo: []provider.Record{pr("upd.example.jp", provider.TypeA, 60, "192.0.2.99")},
 	}
 
-	set, err := merge([]dpfapi.Record{tagged}, cs)
+	set, err := merge([]dpfapi.OverwriteRecordsInner{tagged}, cs)
 	if err != nil {
 		t.Fatalf("merge = error %v", err)
 	}
@@ -143,7 +143,7 @@ func TestApplyManagedBy_ReplacesForeignValue(t *testing.T) {
 		UpdateTo: []provider.Record{pr("upd.example.jp", provider.TypeA, 60, "192.0.2.99")},
 	}
 
-	set, err := merge([]dpfapi.Record{foreign}, cs)
+	set, err := merge([]dpfapi.OverwriteRecordsInner{foreign}, cs)
 	if err != nil {
 		t.Fatalf("merge = error %v", err)
 	}
@@ -179,7 +179,7 @@ func TestApplyManagedBy_IsIdempotent(t *testing.T) {
 
 // 反映済みレコードのラベルのマップを書き換えない。
 //
-// toOverwrite は元のマップへの**参照**を投入集合へ入れる。上書き方式は新しい
+// merge は元のマップへの**参照**を投入集合へ入れる。上書き方式は新しい
 // マップを代入することでこれを避けている (research R3)。
 //
 // **加算方式へ戻されたときに、この表明が最初に落ちる。**
@@ -194,7 +194,7 @@ func TestApplyManagedBy_DoesNotMutateCurrentLabels(t *testing.T) {
 		UpdateTo: []provider.Record{pr("upd.example.jp", provider.TypeA, 60, "192.0.2.99")},
 	}
 
-	set, err := merge([]dpfapi.Record{rec}, cs)
+	set, err := merge([]dpfapi.OverwriteRecordsInner{rec}, cs)
 	if err != nil {
 		t.Fatalf("merge = error %v", err)
 	}
@@ -225,7 +225,7 @@ func TestApplyManagedBy_NeverExceedsDPFLimit(t *testing.T) {
 		UpdateTo: []provider.Record{pr("upd.example.jp", provider.TypeA, 60, "192.0.2.99")},
 	}
 
-	set, err := merge([]dpfapi.Record{rec}, cs)
+	set, err := merge([]dpfapi.OverwriteRecordsInner{rec}, cs)
 	if err != nil {
 		t.Fatalf("merge = error %v", err)
 	}

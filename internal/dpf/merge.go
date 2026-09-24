@@ -22,6 +22,12 @@ type recordKey struct {
 
 // merge は反映済みレコードに変更セットを適用し、投入する集合を組み立てる。
 //
+// 入力は utils.ZoneApplier が渡す「公開されているレコードを投入形式へ写した
+// もの」である。**入力と出力が同じ型であることに意味がある。** 触れない要素は
+// そのまま返せばよく、TTL・コメント・ラベルを写し替える必要がない。写し忘れて
+// 失う経路がそもそも存在しない。null の TTL が 0 に潰れる心配もない
+// (DPF の TTL は 1 以上であり、0 を送ると out_of_range で拒否される)。
+//
 // 一括更新は渡さなかったレコードを削除する。したがって投入する集合は
 // ゾーンのあるべき全体でなければならない。変更対象でないレコードも、
 // 管理対象外のレコードも、すべて含める。
@@ -31,26 +37,35 @@ type recordKey struct {
 // 拒否する。overwrite_soa / overwrite_zone_apex_ns は「送った値を取り込むか」を
 // 決めるフラグであり、「省いてよいか」ではない (research R3)。
 //
-// この 2 つは常に false で送るため、投入した値は反映されない。反映済みの値を
-// [toOverwrite] で逐語コピーするので、いずれにしても変化しない。
-func merge(current []dpfapi.Record, cs provider.ChangeSet) ([]dpfapi.OverwriteRecordsInner, error) {
+// この 2 つは常に false で送るため、投入した値は反映されない。読み取った値を
+// 逐語のまま残すので、いずれにしても変化しない。
+func merge(current []dpfapi.OverwriteRecordsInner, cs provider.ChangeSet) ([]dpfapi.OverwriteRecordsInner, error) {
 	set := make(map[recordKey]dpfapi.OverwriteRecordsInner, len(current))
 	order := make([]recordKey, 0, len(current))
 
 	// 1. 反映済みの内容を土台にする。
+	//
+	// **要素は逐語のまま写す。** ドメインモデルを通さない (MUST NOT)。種別の
+	// 対応付けや正規化を経由させず、読み取った表現のまま書き戻す。変換を挟ま
+	// なければ、変換の誤りが管理対象外のレコードを壊すことはない (research R3)。
 	for i := range current {
-		r := &current[i]
+		r := current[i]
 
-		key, err := keyOf(r.GetName(), r.GetRrtype())
+		key, err := keyOf(r.Name, r.Rrtype)
 		if err != nil {
 			// 名前を解釈できないレコードは、こちらから触れない。
 			// 投入集合から落とすと消えてしまうため、逐語のまま残す。
-			key = recordKey{name: r.GetName(), rrtype: r.GetRrtype()}
+			key = recordKey{name: r.Name, rrtype: r.Rrtype}
 		}
 		if _, seen := set[key]; !seen {
 			order = append(order, key)
 		}
-		set[key] = toOverwrite(r)
+		if r.Labels == nil {
+			// ラベルは必須項目である。null を送らないよう空のマップにする。
+			// 写しの側だけを変えるため、渡された一覧には触れない。
+			r.Labels = map[string]string{}
+		}
+		set[key] = r
 	}
 
 	// 2. 削除対象を落とす。
@@ -111,7 +126,7 @@ func merge(current []dpfapi.Record, cs provider.ChangeSet) ([]dpfapi.OverwriteRe
 //
 // 検査対象に例外を設けない。SOA と apex NS も投入集合に含まれるため、
 // 欠けていれば同じように止まる。DPF が 400 を返す前に、こちら側で気付ける。
-func guard(current []dpfapi.Record, set []dpfapi.OverwriteRecordsInner, cs provider.ChangeSet) error {
+func guard(current []dpfapi.OverwriteRecordsInner, set []dpfapi.OverwriteRecordsInner, cs provider.ChangeSet) error {
 	submitted := make(map[recordKey]bool, len(set))
 	for _, o := range set {
 		submitted[recordKey{name: o.Name, rrtype: o.Rrtype}] = true
@@ -129,9 +144,9 @@ func guard(current []dpfapi.Record, set []dpfapi.OverwriteRecordsInner, cs provi
 	for i := range current {
 		r := &current[i]
 
-		key, err := keyOf(r.GetName(), r.GetRrtype())
+		key, err := keyOf(r.Name, r.Rrtype)
 		if err != nil {
-			key = recordKey{name: r.GetName(), rrtype: r.GetRrtype()}
+			key = recordKey{name: r.Name, rrtype: r.Rrtype}
 		}
 		if submitted[key] || requested[key] {
 			continue
@@ -161,52 +176,6 @@ func providerKey(r provider.Record) (recordKey, error) {
 		return recordKey{}, err
 	}
 	return recordKey{name: r.Name.String(), rrtype: rrtype}, nil
-}
-
-// toOverwrite は反映済みレコードを投入形式へ逐語的に写す。
-//
-// ドメインモデルを通さない (MUST NOT)。種別の対応付けや正規化を経由させず、
-// 読み取った表現のまま書き戻す。変換を挟まなければ、変換の誤りが
-// 管理対象外のレコードを壊すことはない (research R3)。
-//
-// Id / State / Operator はサーバ管理項目であり投入形式に存在しない。
-// 設定可能な項目はすべて写るため、往復は無損失である。
-func toOverwrite(r *dpfapi.Record) dpfapi.OverwriteRecordsInner {
-	labels := r.GetLabels()
-	if labels == nil {
-		labels = map[string]string{}
-	}
-	rdata := make([]dpfapi.RecordsRdataInner, len(r.GetRdata()))
-	copy(rdata, r.GetRdata())
-
-	return dpfapi.OverwriteRecordsInner{
-		Name:        r.GetName(),
-		Ttl:         copyTTL(r),
-		Rrtype:      r.GetRrtype(),
-		Rdata:       rdata,
-		Description: r.GetDescription(),
-		Labels:      labels,
-	}
-}
-
-// copyTTL は反映済みレコードの TTL を、null かどうかを保ったまま写す。
-//
-// [dpfapi.Record.GetTtl] は null を 0 に潰す。DPF の TTL は 1〜2147483647 で
-// あり 0 は範囲外なので、そのまま送ると `out_of_range` で拒否され、ゾーン全体の
-// 適用が通らなくなる。null は「未指定」を意味し、ゾーンの既定 TTL が使われる。
-//
-// SOA とゾーン apex の NS は TTL 未指定で運用されることが多く、これらは常に
-// 投入集合に含まれるため、この経路は必ず通る。
-//
-// 値は複製する。読み取った [dpfapi.Record] の内部ポインタを投入形式と
-// 共有させない。
-func copyTTL(r *dpfapi.Record) dpfapi.NullableInt32 {
-	v, ok := r.GetTtlOk()
-	if !ok || v == nil {
-		return *dpfapi.NewNullableInt32(nil)
-	}
-	ttl := *v
-	return *dpfapi.NewNullableInt32(&ttl)
 }
 
 // normalizeValues は DPF へ送る値を整える。

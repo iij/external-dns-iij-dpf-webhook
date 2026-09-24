@@ -14,12 +14,15 @@ import (
 )
 
 // cur は DPF から読み取った反映済みレコードを組み立てる。
-func cur(name string, rrtype dpfapi.RecordsRrtype, ttl int32, values ...string) dpfapi.Record {
+//
+// 型は投入形式である。utils.ZoneApplier は公開されているレコードをこの形へ
+// 写して編集関数へ渡すため、merge の入力もこの形になる。
+func cur(name string, rrtype dpfapi.RecordsRrtype, ttl int32, values ...string) dpfapi.OverwriteRecordsInner {
 	rdata := make([]dpfapi.RecordsRdataInner, 0, len(values))
 	for _, v := range values {
 		rdata = append(rdata, dpfapi.RecordsRdataInner{Value: &v})
 	}
-	return dpfapi.Record{
+	return dpfapi.OverwriteRecordsInner{
 		Name:        name,
 		Ttl:         *dpfapi.NewNullableInt32(&ttl),
 		Rrtype:      rrtype,
@@ -33,7 +36,7 @@ func cur(name string, rrtype dpfapi.RecordsRrtype, ttl int32, values ...string) 
 //
 // DPF は TTL 未指定のレコードを `"ttl": null` で返す。SOA とゾーン apex の NS が
 // これに当たる。ゾーンの既定 TTL が使われることを意味する。
-func curNullTTL(name string, rrtype dpfapi.RecordsRrtype, values ...string) dpfapi.Record {
+func curNullTTL(name string, rrtype dpfapi.RecordsRrtype, values ...string) dpfapi.OverwriteRecordsInner {
 	r := cur(name, rrtype, 0, values...)
 	r.Ttl = *dpfapi.NewNullableInt32(nil)
 	return r
@@ -66,7 +69,7 @@ func values(o *dpfapi.OverwriteRecordsInner) []string {
 func TestMerge_AppliesChanges(t *testing.T) {
 	t.Parallel()
 
-	current := []dpfapi.Record{cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1")}
+	current := []dpfapi.OverwriteRecordsInner{cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1")}
 	cs := provider.ChangeSet{
 		UpdateTo: []provider.Record{pr("www.example.jp", provider.TypeA, 60, "192.0.2.99")},
 	}
@@ -95,7 +98,7 @@ func TestMerge_AppliesChanges(t *testing.T) {
 func TestMerge_KeepsUnchangedRecords(t *testing.T) {
 	t.Parallel()
 
-	current := []dpfapi.Record{
+	current := []dpfapi.OverwriteRecordsInner{
 		cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1"),
 		cur("mail.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.2"),
 	}
@@ -128,7 +131,7 @@ func TestMerge_CopiesUnmanagedRecordsVerbatim(t *testing.T) {
 	caa.Description = "CAA のコメント"
 	caa.Labels = map[string]string{"managed-by": "human"}
 
-	current := []dpfapi.Record{
+	current := []dpfapi.OverwriteRecordsInner{
 		caa,
 		cur("apex.example.jp.", dpfapi.RECORDSRRTYPE_ANAME, 60, "target.example.jp."),
 		cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1"),
@@ -177,7 +180,7 @@ func TestMerge_IncludesSOAAndApexNS(t *testing.T) {
 	t.Parallel()
 
 	soa := cur("example.jp.", dpfapi.RECORDSRRTYPE_SOA, 3600, "ns1.example.jp. root.example.jp. 1 2 3 4 5")
-	current := []dpfapi.Record{
+	current := []dpfapi.OverwriteRecordsInner{
 		soa,
 		cur("example.jp.", dpfapi.RECORDSRRTYPE_NS, 3600, "ns1.example.jp."),
 		cur("sub.example.jp.", dpfapi.RECORDSRRTYPE_NS, 3600, "ns1.other.jp."),
@@ -217,7 +220,7 @@ func TestMerge_IncludesSOAAndApexNS(t *testing.T) {
 func TestMerge_AddsCreatedRecords(t *testing.T) {
 	t.Parallel()
 
-	current := []dpfapi.Record{cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1")}
+	current := []dpfapi.OverwriteRecordsInner{cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1")}
 	cs := provider.ChangeSet{
 		Create: []provider.Record{pr("new.example.jp", provider.TypeA, 60, "192.0.2.50")},
 	}
@@ -239,7 +242,7 @@ func TestMerge_AddsCreatedRecords(t *testing.T) {
 func TestMerge_RemovesDeletedRecords(t *testing.T) {
 	t.Parallel()
 
-	current := []dpfapi.Record{
+	current := []dpfapi.OverwriteRecordsInner{
 		cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1"),
 		cur("old.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.9"),
 	}
@@ -264,7 +267,7 @@ func TestMerge_RemovesDeletedRecords(t *testing.T) {
 func TestMerge_MatchesRecordsCaseInsensitively(t *testing.T) {
 	t.Parallel()
 
-	current := []dpfapi.Record{cur("WWW.Example.JP.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1")}
+	current := []dpfapi.OverwriteRecordsInner{cur("WWW.Example.JP.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1")}
 	cs := provider.ChangeSet{
 		UpdateTo: []provider.Record{pr("www.example.jp", provider.TypeA, 60, "192.0.2.99")},
 	}
@@ -285,7 +288,7 @@ func TestMerge_MatchesRecordsCaseInsensitively(t *testing.T) {
 func TestMerge_DeletingAbsentRecordIsNoop(t *testing.T) {
 	t.Parallel()
 
-	current := []dpfapi.Record{cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1")}
+	current := []dpfapi.OverwriteRecordsInner{cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1")}
 	cs := provider.ChangeSet{
 		Delete: []provider.Record{pr("absent.example.jp", provider.TypeA, 300, "192.0.2.9")},
 	}
@@ -306,14 +309,12 @@ func TestMerge_DeletingAbsentRecordIsNoop(t *testing.T) {
 func TestGuard_DetectsUnexpectedRemoval(t *testing.T) {
 	t.Parallel()
 
-	current := []dpfapi.Record{
+	current := []dpfapi.OverwriteRecordsInner{
 		cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1"),
 		cur("mail.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.2"),
 	}
 	// mail が投入集合から抜け落ちた状態を模す。変更セットは削除を含まない。
-	set := []dpfapi.OverwriteRecordsInner{
-		toOverwrite(&current[0]),
-	}
+	set := []dpfapi.OverwriteRecordsInner{current[0]}
 
 	err := guard(current, set, provider.ChangeSet{})
 	if err == nil {
@@ -328,11 +329,11 @@ func TestGuard_DetectsUnexpectedRemoval(t *testing.T) {
 func TestGuard_AllowsRequestedRemoval(t *testing.T) {
 	t.Parallel()
 
-	current := []dpfapi.Record{
+	current := []dpfapi.OverwriteRecordsInner{
 		cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1"),
 		cur("old.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.9"),
 	}
-	set := []dpfapi.OverwriteRecordsInner{toOverwrite(&current[0])}
+	set := []dpfapi.OverwriteRecordsInner{current[0]}
 	cs := provider.ChangeSet{
 		Delete: []provider.Record{pr("old.example.jp", provider.TypeA, 300, "192.0.2.9")},
 	}
@@ -349,7 +350,7 @@ func TestGuard_AllowsRequestedRemoval(t *testing.T) {
 func TestGuard_CoversSOAAndApexNS(t *testing.T) {
 	t.Parallel()
 
-	current := []dpfapi.Record{
+	current := []dpfapi.OverwriteRecordsInner{
 		cur("example.jp.", dpfapi.RECORDSRRTYPE_SOA, 3600, "ns1.example.jp. root.example.jp. 1 2 3 4 5"),
 		cur("example.jp.", dpfapi.RECORDSRRTYPE_NS, 3600, "ns1.example.jp."),
 		cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1"),
@@ -384,7 +385,7 @@ func TestGuard_CoversSOAAndApexNS(t *testing.T) {
 func TestMerge_PreservesNullTTL(t *testing.T) {
 	t.Parallel()
 
-	current := []dpfapi.Record{
+	current := []dpfapi.OverwriteRecordsInner{
 		curNullTTL("example.jp.", dpfapi.RECORDSRRTYPE_SOA, "ns1.example.jp. root.example.jp. 1 2 3 4 5"),
 		curNullTTL("example.jp.", dpfapi.RECORDSRRTYPE_NS, "ns1.example.jp."),
 		cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1"),
@@ -420,8 +421,7 @@ func TestMerge_PreservesNullTTL(t *testing.T) {
 
 // FR-007: 実行者の記録をレコードのコメントに書かない。
 //
-// レコード単位の Description は 001 の逐語コピーの対象である (merge の
-// toOverwrite)。本機能の記録はゾーン反映の説明として載るものであり、
+// レコード単位の Description は 001 の逐語コピーの対象である。本機能の記録はゾーン反映の説明として載るものであり、
 // ここへ書き込むと逐語コピーの保証が崩れる。
 //
 // 既存のコメントが保たれることは TestMerge_* が既に固定している。こちらは
@@ -429,7 +429,7 @@ func TestMerge_PreservesNullTTL(t *testing.T) {
 func TestMerge_DoesNotWriteAttributionIntoRecordComments(t *testing.T) {
 	t.Parallel()
 
-	current := []dpfapi.Record{
+	current := []dpfapi.OverwriteRecordsInner{
 		cur("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1"),
 	}
 	cs := provider.ChangeSet{
