@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.33.5
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.49.0
 	github.com/hashicorp/vault/api v1.23.0
-	github.com/iij/dpf-go v0.3.0
+	github.com/iij/dpf-go v0.4.0
 	github.com/iij/dpf-go/misc/aws v0.1.0
 	github.com/iij/dpf-go/misc/azure v0.1.0
 	github.com/iij/dpf-go/misc/gcp v0.1.0
