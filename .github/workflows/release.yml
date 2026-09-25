@@ -1,0 +1,175 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# リリース時に配布イメージをレジストリへ公開し、SBOM と provenance を
+# アテステーションとして紐づけ、SBOM をリリースページへ添付する。
+#
+# SBOM の対象は「配布されるコンテナイメージ」である。ソースツリーではない。
+# constitution v1.10.0 が配布形態をコンテナイメージのみと定めており、
+# 実際にリンクされた依存を反映するのはイメージを走査した結果だからである。
+#
+# 走査は push 済みのイメージをダイジェスト指定で行う。アテステーションの
+# 対象と走査の対象を同一のものに固定するためである。手元のイメージを
+# 走査すると、公開したものと違う成果物の SBOM を署名しうる。
+name: release
+
+on:
+  # リリースが公開された時点で走らせる。
+  release:
+    types: [published]
+
+  # 生成し直したい場合に手で回せるようにしておく。
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "対象のリリースのタグ (例: v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  # リリースページへの添付。
+  contents: write
+  # ghcr.io への push。
+  packages: write
+  # Sigstore への署名に用いる OIDC トークン。
+  id-token: write
+  # Artifact Attestations の作成。
+  attestations: write
+
+env:
+  # constitution「開発ワークフローと品質ゲート」: CI で用いるツールの
+  # バージョンを固定する。暗黙の更新で同一コミットの結果が変わらないようにする。
+  SYFT_VERSION: v1.51.1
+  REGISTRY: ghcr.io
+  SBOM_FILE: sbom.spdx.json
+
+jobs:
+  release:
+    name: イメージを公開し SBOM を添付する
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 対象のタグを決める
+        id: target
+        env:
+          # 入力はシェルの外で受け取る。タグ名を直接展開すると
+          # 任意のコマンドを差し込まれる余地が生まれる。
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${EVENT_TAG:-$INPUT_TAG}"
+          if [ -z "$tag" ]; then
+            echo "::error::対象のタグを決められません"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+          # レジストリ参照は小文字でなければならない。所有者名に大文字が
+          # 含まれうるため、ここで揃える。
+          repo="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          echo "image=${REGISTRY}/${repo}" >> "$GITHUB_OUTPUT"
+
+      - name: ソースを取得する
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ steps.target.outputs.tag }}
+          fetch-depth: 1
+
+      - name: buildx を用意する
+        uses: docker/setup-buildx-action@v4.4.0
+
+      - name: レジストリへログインする
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 配布イメージをビルドして公開する
+        id: build
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: build/Containerfile
+          push: true
+          tags: ${{ steps.target.outputs.image }}:${{ steps.target.outputs.tag }}
+          build-args: |
+            VERSION=${{ steps.target.outputs.tag }}
+            REVISION=${{ github.sha }}
+
+      - name: SBOM を SPDX JSON で生成する
+        uses: anchore/sbom-action@v0.24.2
+        with:
+          # push 済みのイメージをダイジェストで指定する。タグではなく
+          # ダイジェストを使うのは、アテステーションの対象と走査の対象が
+          # 同一であることを保証するためである。
+          image: ${{ steps.target.outputs.image }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: ${{ env.SBOM_FILE }}
+          syft-version: ${{ env.SYFT_VERSION }}
+          # 添付とアテステーションは後段で明示的に行う。
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: SBOM の内容を検証する
+        run: |
+          # 空や壊れた SBOM をそのまま添付・署名すると、供給網の情報が
+          # 「あるのに使えない」状態で配布される。先に確かめる。
+          if [ ! -s "$SBOM_FILE" ]; then
+            echo "::error::$SBOM_FILE が生成されていません"
+            exit 1
+          fi
+          python3 .github/scripts/verify_sbom.py "$SBOM_FILE"
+
+      - name: SBOM をイメージのアテステーションとして紐づける
+        uses: actions/attest-sbom@v4.1.0
+        with:
+          subject-name: ${{ steps.target.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: ${{ env.SBOM_FILE }}
+          # レジストリへ push し、イメージの referrer として参照できるようにする
+          # (constitution v1.10.0)。referrers はレジストリ上の関連付けであり、
+          # 手元のイメージには付けられない。
+          push-to-registry: true
+
+      - name: provenance をイメージのアテステーションとして紐づける
+        uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-name: ${{ steps.target.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: 添付する SBOM ファイル自体に署名する
+        # リリースページから落とした sbom.spdx.json が、このワークフローで
+        # 生成されたものであることを検証できるようにする。
+        # イメージのアテステーションとは対象が異なるため、別に作る。
+        uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-path: ${{ env.SBOM_FILE }}
+
+      - name: SBOM をリリースへ添付する
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.target.outputs.tag }}
+          IMAGE: ${{ steps.target.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          # --clobber により、生成し直して再実行しても添付を差し替えられる。
+          gh release upload "$TAG" "$SBOM_FILE" --clobber
+
+          {
+            echo "### 公開しました"
+            echo
+            echo "| 項目 | 内容 |"
+            echo "|---|---|"
+            echo "| イメージ | \`$IMAGE:$TAG\` |"
+            echo "| ダイジェスト | \`$DIGEST\` |"
+            echo "| SBOM | \`$SBOM_FILE\` ($(wc -c < "$SBOM_FILE") バイト) |"
+            echo
+            echo "検証:"
+            echo
+            echo '```bash'
+            echo "gh attestation verify oci://$IMAGE:$TAG --repo $GITHUB_REPOSITORY"
+            echo "gh attestation verify $SBOM_FILE --repo $GITHUB_REPOSITORY"
+            echo "cosign tree $IMAGE@$DIGEST"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

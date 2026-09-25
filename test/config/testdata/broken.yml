@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+# 解析できない YAML。読み取りがエラーを返すことの確認に使う。
+version: 2
+updates:
+  - package-ecosystem: "gomod
+    directory: "/"
+     schedule:
+    interval: weekly

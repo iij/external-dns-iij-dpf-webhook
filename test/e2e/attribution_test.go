@@ -1,0 +1,167 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package e2e
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/iij/external-dns-iij-dpf-webhook/internal/config"
+	"github.com/iij/external-dns-iij-dpf-webhook/internal/dnsname"
+	"github.com/iij/external-dns-iij-dpf-webhook/internal/dpf"
+	"github.com/iij/external-dns-iij-dpf-webhook/internal/provider"
+)
+
+// 本ファイルは、ゾーン反映の実行者が DPF の履歴へ記録されることを確かめる
+// (004 の FR-001、SC-002)。
+//
+// **要求に説明を載せることと、DPF が履歴として保持することは別の事実である。**
+// 前者は internal/dpf の単体テストで足りる。後者は実環境でしか分からない。
+//
+// 機械化しない確認が 1 つある。**人手による変更と並べて区別できること
+// (004 quickstart 3、SC-001) は機械化しない。** DPF コンソールの操作を伴う
+// ためである。省いたのではなく、機械化の対象外として残している。
+
+// attributionSetup は検証用ゾーンに対する provider とクライアントを組み立てる。
+//
+// 履歴の読み取りは provider.Backend に無い操作であるため、クライアントを
+// 直接持つ必要がある (004 contracts)。
+func attributionSetup(t *testing.T) (*provider.Provider, *dpf.Client, dnsname.Name) {
+	t.Helper()
+
+	tokenFile := os.Getenv("DPF_E2E_TOKEN_FILE")
+	zoneName := os.Getenv("DPF_E2E_ZONE")
+	if tokenFile == "" || zoneName == "" {
+		t.Skip("DPF_E2E_TOKEN_FILE と DPF_E2E_ZONE が必要です。検証用ゾーンでのみ実行してください")
+	}
+
+	zone, err := dnsname.Parse(zoneName)
+	if err != nil {
+		t.Fatalf("DPF_E2E_ZONE を解釈できません: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	t.Cleanup(cancel)
+
+	client, err := dpf.NewClient(ctx, config.DPF{TokenFile: tokenFile}, nil, nil)
+	if err != nil {
+		t.Fatalf("DPF クライアントの作成に失敗: %v", err)
+	}
+
+	p := provider.New(dnsname.NewScope(zone), client, slog.New(slog.DiscardHandler))
+	return p, client, zone
+}
+
+// TestApplyAttribution は、適用した反映の履歴に記録が残ることを確かめる。
+//
+// 1 つのテストに束ねているのは、途中で失敗しても後始末が確実に走るようにするため。
+func TestApplyAttribution(t *testing.T) {
+	p, client, zone := attributionSetup(t)
+
+	zoneObj := zoneByName(t, client, zone)
+	name := testName(t, zone)
+
+	rec := func(value string) provider.Record {
+		return provider.Record{Name: name, Type: provider.TypeA, TTL: 300, Values: []string{value}}
+	}
+
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+		defer cancel()
+		//nolint:errcheck,gosec // 後始末。既に削除済みなら何も起きない
+		p.ApplyChanges(ctx, provider.ChangeSet{Delete: []provider.Record{rec("192.0.2.1")}})
+	})
+
+	// 適用前の履歴。これが書き換わらないことを後で確かめる (FR-008)。
+	before, err := client.ZoneHistories(t.Context(), zoneObj)
+	if err != nil {
+		t.Fatalf("履歴の取得に失敗: %v", err)
+	}
+	t.Logf("適用前の履歴件数: %d", len(before))
+
+	t.Run("反映の履歴に記録が残る", func(t *testing.T) {
+		if err := p.ApplyChanges(t.Context(), provider.ChangeSet{
+			Create: []provider.Record{rec("192.0.2.1")},
+		}); err != nil {
+			t.Fatalf("適用に失敗: %v", err)
+		}
+
+		got, err := client.ZoneHistories(t.Context(), zoneObj)
+		if err != nil {
+			t.Fatalf("履歴の取得に失敗: %v", err)
+		}
+		if len(got) == 0 {
+			t.Fatal("履歴が空。反映が記録されていない")
+		}
+
+		// 最新の履歴が本サービスによる反映であること。
+		latest := got[0]
+		t.Logf("最新の履歴: committed_at=%s description=%q", latest.CommittedAt, latest.Description)
+		if !strings.Contains(latest.Description, "external-dns-iij-dpf-webhook") {
+			t.Errorf("最新の履歴の説明 = %q, want external-dns-iij-dpf-webhook を含む",
+				latest.Description)
+		}
+	})
+
+	t.Run("連続した反映のすべてに記録が残る", func(t *testing.T) {
+		if err := p.ApplyChanges(t.Context(), provider.ChangeSet{
+			UpdateTo: []provider.Record{rec("192.0.2.2")},
+		}); err != nil {
+			t.Fatalf("適用に失敗: %v", err)
+		}
+
+		got, err := client.ZoneHistories(t.Context(), zoneObj)
+		if err != nil {
+			t.Fatalf("履歴の取得に失敗: %v", err)
+		}
+		if len(got) < 2 {
+			t.Fatalf("履歴 = %d 件, want 2 件以上", len(got))
+		}
+
+		// **件数の増減では判定しない。** 取得は historyLimit 件で打ち切られた
+		// 窓であり、履歴がそれを超えるゾーンでは件数が常に同じになる。
+		// 本テストが加えた 2 件は、降順の先頭 2 件として現れる (SC-002)。
+		for i := range 2 {
+			if !strings.Contains(got[i].Description, "external-dns-iij-dpf-webhook") {
+				t.Errorf("履歴[%d] (id=%d) の説明 = %q, want 記録を含む",
+					i, got[i].ID, got[i].Description)
+			}
+		}
+	})
+
+	t.Run("既存の履歴が書き換わらない", func(t *testing.T) {
+		got, err := client.ZoneHistories(t.Context(), zoneObj)
+		if err != nil {
+			t.Fatalf("履歴の取得に失敗: %v", err)
+		}
+
+		// **ID で突き合わせる。** 降順かつ打ち切られた窓であるため、新しい反映が
+		// 増えると古い側が窓から押し出される。位置で比べると別の履歴同士を
+		// 比べてしまう。窓に残っているものだけを検査すれば足りる (FR-008)。
+		now := make(map[int64]dpf.ZoneHistory, len(got))
+		for _, h := range got {
+			now[h.ID] = h
+		}
+
+		var checked int
+		for _, was := range before {
+			h, ok := now[was.ID]
+			if !ok {
+				continue // 窓から押し出された。追記のみである限り問題ない
+			}
+			checked++
+			if h.Description != was.Description {
+				t.Errorf("id=%d の説明が書き換わった: %q → %q",
+					was.ID, was.Description, h.Description)
+			}
+			if !h.CommittedAt.Equal(was.CommittedAt) {
+				t.Errorf("id=%d の反映時刻が書き換わった: %s → %s",
+					was.ID, was.CommittedAt, h.CommittedAt)
+			}
+		}
+		t.Logf("窓に残っていた既存の履歴 %d 件を検査した", checked)
+	})
+}

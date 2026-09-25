@@ -1,0 +1,215 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# 実際の DPF に対してレコードの追加・変更・削除を検証する。
+#
+# constitution v2.1.0: `main` へマージする前に、実際の DPF に対してレコードの
+# 追加・変更・削除を CI で実行し、成功することを確認すること (MUST)。
+# 手元での確認をもって代えないこと (MUST NOT)。
+#
+# **破壊的操作を行う。** 検証用ゾーンでのみ実行する。
+#
+# 必要な設定:
+#   secrets.DPF_TOKEN               検証用ゾーンを操作できる DPF アクセストークン
+#   vars.DPF_TEST_ZONE_NAME         検証用ゾーン名 (親)
+#   vars.DPF_TEST_CHILD_ZONE_NAME   親の配下に実在する子ゾーン名 (任意)
+#
+# 子ゾーンを設定すると、親子ゾーンが併存する環境での適用先の検証
+# (SC-010〜SC-012) が走る。未設定ならその検証はスキップされる。
+name: e2e
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# **並列実行を抑止する (constitution v2.1.0)。**
+#
+# 検証用ゾーンは共有される状態である。2 つの実行が同時に走ると、それぞれが
+# ゾーンを読み、マージし、書き戻す。これは利用前提条件 PC-001 が禁じる
+# 「ロックに参加しない機械的な変更者」が 2 つ並ぶ状況にほかならず、
+# 互いの変更を取り消し合う。
+#
+# ゾーンロックによって書き込み自体は直列化されるが、それでは足りない。
+# 検証はゾーンの内容に対して表明を行うため、一方の実行が作ったレコードが
+# 他方の表明に混ざり、判定が実行のタイミングに依存する。
+#
+# cancel-in-progress は false とする。途中で打ち切ると、後始末が走らずに
+# 検証用ゾーンへレコードが residue として残る。
+concurrency:
+  group: e2e-verification-zone
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    name: 実際の DPF に対する検証
+    runs-on: ubuntu-latest
+    # 反映の待ち合わせを含むため、既定より長く取る。
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 検証用の資格情報を用意する
+        id: creds
+        env:
+          DPF_TOKEN: ${{ secrets.DPF_TOKEN }}
+          ZONE_NAME: ${{ vars.DPF_TEST_ZONE_NAME }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          # 要約に出すのは Markdown であり、`DPF_TOKEN` などはコード表記である。
+          # シェルに展開させたい変数ではないため、単引用符のままにする。
+          # shellcheck disable=SC2016
+          # 資格情報が揃っていなければ検証は行われない。**それを見逃さないよう
+          # 明示する。** 「テストが緑」と「検証が行われた」は別のことである。
+          if [ -z "$DPF_TOKEN" ] || [ -z "$ZONE_NAME" ]; then
+            echo "::error::DPF_TOKEN と DPF_TEST_ZONE_NAME が未設定です。実環境での検証が行われません"
+            {
+              echo "### 実環境での検証が行われませんでした"
+              echo
+              echo 'constitution v2.1.0 は、`main` へマージする前に実際の DPF に対する'
+              echo '検証を MUST としています。次を設定してください。'
+              echo
+              echo '| 種別 | 名前 | 内容 |'
+              echo '|---|---|---|'
+              echo '| シークレット | `DPF_TOKEN` | 検証用ゾーンを操作できる DPF アクセストークン |'
+              echo '| 変数 | `DPF_TEST_ZONE_NAME` | 検証用ゾーン名 (例: `sub.example.jp.`) |'
+            echo '| 変数 | `DPF_TEST_CHILD_ZONE_NAME` | 親子ゾーン検証用の子ゾーン名 (任意、例: `a.sub.example.jp.`) |'
+              echo
+              echo '**破壊的操作を行います。本番ゾーンを指定しないでください。**'
+            } >> "$GITHUB_STEP_SUMMARY"
+            if [ "$GITHUB_ACTOR" = "dependabot[bot]" ]; then
+              {
+                echo
+                echo '#### この Pull Request は Dependabot が起点です'
+                echo
+                echo 'Dependabot 起点の実行は Actions secrets を参照できません。'
+                echo '**これは設定の不足ではなく、意図した状態です。** 更新後の依存コードと'
+                echo '検証用ゾーンのトークンを同じ実行に同居させないためです (FR-013)。'
+                echo
+                echo '次の手順で引き取ってください。'
+                echo
+                echo '1. 更新内容 (上流の差分) を確認する'
+                echo '2. **この Pull Request のブランチへコミットを 1 つ積む**'
+                echo '3. 以降の実行は保守担当者が起点となり、全検査が実行される'
+                echo
+                echo '検査を飛ばす設定は足さないでください。skipped はブランチ保護で'
+                echo '成功として数えられます (FR-014)。'
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+            exit 1
+          fi
+
+          # トークンはファイルとして渡す。環境変数から受け取る経路を
+          # 本サービスは持たない (constitution v1.8.0)。
+          umask 077
+          printf '%s' "$DPF_TOKEN" > "${RUNNER_TEMP}/dpf-token"
+          echo "token_file=${RUNNER_TEMP}/dpf-token" >> "$GITHUB_OUTPUT"
+
+      - name: 追加・変更・削除を検証する
+        env:
+          # テスト側の入力名はリポジトリの設定名から独立させる。
+          # テストが GitHub の命名を知る必要はない。
+          DPF_E2E_TOKEN_FILE: ${{ steps.creds.outputs.token_file }}
+          DPF_E2E_ZONE: ${{ vars.DPF_TEST_ZONE_NAME }}
+          # 親子ゾーンの検証用。未設定なら当該テストはスキップする。
+          DPF_E2E_CHILD_ZONE: ${{ vars.DPF_TEST_CHILD_ZONE_NAME }}
+        run: |
+          # -count=1 でキャッシュを使わせない。実環境への到達が目的であり、
+          # 前回の結果を再利用しては検証にならない。
+          go test ./test/e2e/... -v -count=1 -timeout=25m
+
+      - name: トークンを消す
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dpf-token"
+
+  # 1,000 件規模での取得と適用 (T082、SC-008)。
+  #
+  # e2e の後に順に走らせる。並列に走らせない理由はワークフロー冒頭の
+  # concurrency の説明と同じで、検証用ゾーンが共有される状態だからである。
+  # ここは 1,000 件を作って消すため、同時に走ると他方の件数の表明が壊れる。
+  #
+  # `main` へ向けた PR と手動実行に限る。作成と削除に時間がかかるため、
+  # すべての PR で走らせると開発の回転が落ちる。constitution v2.1.0 が
+  # 求めるのは `main` へマージする前の確認である。
+  scale:
+    name: 1,000 件規模での検証
+    needs: e2e
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    # 1,000 件の作成・再適用・削除と、その間の一覧取得を含む。
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 検証用の資格情報を用意する
+        id: creds
+        env:
+          DPF_TOKEN: ${{ secrets.DPF_TOKEN }}
+          ZONE_NAME: ${{ vars.DPF_TEST_ZONE_NAME }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          # 要約に出すのは Markdown であり、`DPF_TOKEN` などはコード表記である。
+          # シェルに展開させたい変数ではないため、単引用符のままにする。
+          # shellcheck disable=SC2016
+          if [ -z "$DPF_TOKEN" ] || [ -z "$ZONE_NAME" ]; then
+            echo "::error::DPF_TOKEN と DPF_TEST_ZONE_NAME が未設定です。規模の検証が行われません"
+            {
+              echo "### 実環境での検証が行われませんでした"
+              echo
+              echo '| 種別 | 名前 | 内容 |'
+              echo '|---|---|---|'
+              echo '| シークレット | `DPF_TOKEN` | 検証用ゾーンを操作できる DPF アクセストークン |'
+              echo '| 変数 | `DPF_TEST_ZONE_NAME` | 検証用ゾーン名 (例: `sub.example.jp.`) |'
+            } >> "$GITHUB_STEP_SUMMARY"
+            if [ "$GITHUB_ACTOR" = "dependabot[bot]" ]; then
+              {
+                echo
+                echo '#### この Pull Request は Dependabot が起点です'
+                echo
+                echo 'Dependabot 起点の実行は Actions secrets を参照できません。'
+                echo '**これは設定の不足ではなく、意図した状態です。** 更新後の依存コードと'
+                echo '検証用ゾーンのトークンを同じ実行に同居させないためです (FR-013)。'
+                echo
+                echo '1. 更新内容 (上流の差分) を確認する'
+                echo '2. **この Pull Request のブランチへコミットを 1 つ積む**'
+                echo '3. 以降の実行は保守担当者が起点となり、全検査が実行される'
+                echo
+                echo '検査を飛ばす設定は足さないでください。skipped はブランチ保護で'
+                echo '成功として数えられます (FR-014)。'
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$DPF_TOKEN" > "${RUNNER_TEMP}/dpf-token"
+          echo "token_file=${RUNNER_TEMP}/dpf-token" >> "$GITHUB_OUTPUT"
+
+      - name: 1,000 件規模で取得と適用を検証する
+        env:
+          DPF_E2E_TOKEN_FILE: ${{ steps.creds.outputs.token_file }}
+          DPF_E2E_ZONE: ${{ vars.DPF_TEST_ZONE_NAME }}
+          # 明示しなければ規模の検証は走らない。検証用ゾーンを大きく
+          # 書き換えるため、既定では実行しない。
+          DPF_E2E_SCALE: "1"
+        run: |
+          # -v で経過時間をログに残す。予算に対する余裕を後から読めるようにする。
+          go test ./test/e2e/... -run TestScale -v -count=1 -timeout=40m
+
+      - name: トークンを消す
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dpf-token"

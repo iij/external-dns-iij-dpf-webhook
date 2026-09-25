@@ -1,0 +1,23 @@
+# Only the module and sources are needed to build.
+.git/
+.github/
+specs/
+docs/
+bin/
+dist/
+vendor/
+
+# Never send credentials into the build context.
+.env
+.env.*
+*.pem
+*.key
+*.crt
+token
+secrets/
+
+.DS_Store
+*.swp
+*.tmp
+.vscode/
+.idea/

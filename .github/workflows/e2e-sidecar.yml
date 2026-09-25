@@ -1,0 +1,401 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# ExternalDNS と本 provider をサイドカー構成で動かし、Ingress の作成から
+# レコードの反映までを確認する (T083、SC-001/SC-004/SC-007)。
+#
+# 上流の external-dns チャートをそのまま使う。README に載せた values が
+# 実際に動くことを、ここで機械的に確かめる。README だけが正しくて
+# 動かない、という食い違いを残さないため。
+#
+# **破壊的操作を行う。** 検証用ゾーンでのみ実行する。
+#
+# 必要な設定:
+#   secrets.DPF_TOKEN           検証用ゾーンを操作できる DPF アクセストークン
+#   vars.DPF_TEST_ZONE_NAME     検証用ゾーン名
+name: e2e-sidecar
+
+on:
+  # 手動実行と、`main` へ向けた PR に限る。クラスタの起動とイメージの
+  # ビルドを含み、反映の待ち合わせに最大 5 分かかる。
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 検証用ゾーンを共有するため、e2e と同じ理由で並列実行を抑止する。
+# **e2e ワークフローとも競合する。** グループ名を揃えて直列化する。
+concurrency:
+  group: e2e-verification-zone
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: external-dns-iij-dpf-webhook
+
+  # 上流チャートのバージョンを固定する。暗黙の更新で同一コミットの
+  # 判定結果が変わる状態にしない (constitution v1.3.0)。
+  CHART_VERSION: 1.21.1
+
+  # **チャートの appVersion は本 provider の前提より古い。**
+  # チャート 1.21.1 の appVersion は 0.21.0 だが、本 provider は
+  # webhook provider API v0.22.0 を前提とする。image.tag を明示する。
+  EXTERNAL_DNS_VERSION: v0.22.0
+
+  NAMESPACE: external-dns
+
+jobs:
+  sidecar:
+    name: ExternalDNS サイドカー構成での検証
+    runs-on: ubuntu-latest
+    # イメージのビルド、クラスタの起動、反映の待ち合わせ (最大 5 分) ×2 を含む。
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 検証用の資格情報を確認する
+        id: creds
+        env:
+          DPF_TOKEN: ${{ secrets.DPF_TOKEN }}
+          ZONE_NAME: ${{ vars.DPF_TEST_ZONE_NAME }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          # 要約に出すのは Markdown であり、`DPF_TOKEN` などはコード表記である。
+          # シェルに展開させたい変数ではないため、単引用符のままにする。
+          # shellcheck disable=SC2016
+          if [ -z "$DPF_TOKEN" ] || [ -z "$ZONE_NAME" ]; then
+            echo "::error::DPF_TOKEN と DPF_TEST_ZONE_NAME が未設定です。検証が行われません"
+            {
+              echo "### 実環境での検証が行われませんでした"
+              echo
+              echo '| 種別 | 名前 | 内容 |'
+              echo '|---|---|---|'
+              echo '| シークレット | `DPF_TOKEN` | 検証用ゾーンを操作できる DPF アクセストークン |'
+              echo '| 変数 | `DPF_TEST_ZONE_NAME` | 検証用ゾーン名 (例: `sub.example.jp.`) |'
+            } >> "$GITHUB_STEP_SUMMARY"
+            if [ "$GITHUB_ACTOR" = "dependabot[bot]" ]; then
+              {
+                echo
+                echo '#### この Pull Request は Dependabot が起点です'
+                echo
+                echo 'Dependabot 起点の実行は Actions secrets を参照できません。'
+                echo '**これは設定の不足ではなく、意図した状態です。** 更新後の依存コードと'
+                echo '検証用ゾーンのトークンを同じ実行に同居させないためです (FR-013)。'
+                echo
+                echo '1. 更新内容 (上流の差分) を確認する'
+                echo '2. **この Pull Request のブランチへコミットを 1 つ積む**'
+                echo '3. 以降の実行は保守担当者が起点となり、全検査が実行される'
+                echo
+                echo '検査を飛ばす設定は足さないでください。skipped はブランチ保護で'
+                echo '成功として数えられます (FR-014)。'
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+            exit 1
+          fi
+
+          umask 077
+          printf '%s' "$DPF_TOKEN" > "${RUNNER_TEMP}/dpf-token"
+          echo "token_file=${RUNNER_TEMP}/dpf-token" >> "$GITHUB_OUTPUT"
+
+          # ホスト名は実行ごとに変える。前回の残留と混ざると、
+          # 反映の待ち合わせが前回のレコードを見て通ってしまう。
+          #
+          # ゾーン名は末尾ドット付きで登録されている。Ingress の host は
+          # 末尾ドットを許さないため、ここで落とす。
+          zone_no_dot="${ZONE_NAME%.}"
+          host="sidecar-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.${zone_no_dot}"
+          echo "host=${host}" >> "$GITHUB_OUTPUT"
+          echo "検証に使うホスト名: ${host}"
+
+      - name: buildx を用意する
+        uses: docker/setup-buildx-action@v4.4.0
+
+      - name: イメージをビルドする
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: build/Containerfile
+          load: true
+          push: false
+          tags: ${{ env.IMAGE_NAME }}:sidecar
+
+      - name: kind クラスタを起動する
+        uses: helm/kind-action@v1.15.0
+        with:
+          version: v0.33.0
+          cluster_name: sidecar
+          # ダイジェストで固定する。タグだけでは同じ実行が再現しない。
+          node_image: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+
+      - name: イメージをクラスタへ読み込む
+        run: kind load docker-image "${IMAGE_NAME}:sidecar" --name sidecar
+
+      - uses: azure/setup-helm@v5.0.1
+        with:
+          version: v3.19.0
+
+      - name: トークンの Secret を作る
+        env:
+          DPF_TOKEN: ${{ secrets.DPF_TOKEN }}
+        run: |
+          kubectl create namespace "$NAMESPACE"
+          # --from-file ではなく標準入力から渡す。ファイル名がキーになる
+          # 仕様に依存せず、値がプロセス引数に現れない経路を選ぶ。
+          kubectl create secret generic dpf-token \
+            --namespace "$NAMESPACE" \
+            --from-literal=token="$DPF_TOKEN"
+
+      - name: 上流チャートで導入する
+        env:
+          ZONE_NAME: ${{ vars.DPF_TEST_ZONE_NAME }}
+        run: |
+          # values は README の推奨値をそのまま使う。README が実際に動くことを
+          # ここで確かめる。差分を作るなら README 側も直すこと。
+          zone_no_dot="${ZONE_NAME%.}"
+
+          cat > "${RUNNER_TEMP}/values.yaml" <<EOF
+          image:
+            tag: ${EXTERNAL_DNS_VERSION}
+
+          # Ingress だけを見る。Service まで見ると、クラスタ内の
+          # 無関係な Service がレコードを作りうる。
+          sources:
+            - ingress
+
+          # 削除まで検証する。upsert-only では Ingress を消しても
+          # レコードが残る。
+          policy: sync
+
+          txtOwnerId: sidecar-${GITHUB_RUN_ID}
+
+          # 反映を待たずに次の同期が来ないよう、既定 (1m) のまま使う。
+          interval: 1m
+
+          # **診断のため debug とする。README の推奨値ではない。**
+          # ExternalDNS はレコードごとの差分の判断 (どのフィールドが食い違って
+          # いると見たか) を debug でしか出さない。info のままでは、差分が
+          # 振動したときに原因が読めない。
+          #
+          # 実運用では既定 (info) で足りる。ここで debug にするのは、CI が
+          # 落ちたときに一度で原因まで届くようにするためである。
+          logLevel: debug
+
+          # **待ち受け時間は既定では足りない。** 適用は DPF の反映完了まで
+          # 待つ (FR-011)。README「待ち受け時間は既定では足りません」参照。
+          extraArgs:
+            - --webhook-provider-read-timeout=30s
+            - --webhook-provider-write-timeout=605s
+
+          provider:
+            name: webhook
+            webhook:
+              image:
+                repository: ${IMAGE_NAME}
+                tag: sidecar
+                pullPolicy: Never
+
+              args:
+                - --dpf-token-file=/secrets/token
+                - --domain-filter=${zone_no_dot}
+                # 診断のため debug とする。上と同じ理由による。
+                - --log-level=debug
+
+              extraVolumeMounts:
+                - name: dpf-token
+                  mountPath: /secrets
+                  readOnly: true
+
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65532
+                capabilities:
+                  drop: ["ALL"]
+
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+
+          extraVolumes:
+            - name: dpf-token
+              secret:
+                secretName: dpf-token
+
+          EOF
+
+          echo "--- values.yaml ---"
+          cat "${RUNNER_TEMP}/values.yaml"
+
+          helm repo add external-dns https://kubernetes-sigs.github.io/external-dns/
+          helm repo update
+          helm upgrade --install external-dns external-dns/external-dns \
+            --version "$CHART_VERSION" \
+            --namespace "$NAMESPACE" \
+            --values "${RUNNER_TEMP}/values.yaml" \
+            --wait --timeout 5m
+
+      - name: Pod が動いていることを確認する
+        run: |
+          kubectl -n "$NAMESPACE" get pods -o wide
+          kubectl -n "$NAMESPACE" wait --for=condition=Ready pod \
+            --selector app.kubernetes.io/name=external-dns --timeout=5m
+
+          # サイドカーが 2 つとも動いていること。webhook 側が
+          # CrashLoopBackOff でも Ready にならないため、ここで気付ける。
+          kubectl -n "$NAMESPACE" get pods \
+            -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .spec.containers[*]}{.name}{" "}{end}{"\n"}{end}'
+
+      - name: Ingress を作る
+        env:
+          HOST: ${{ steps.creds.outputs.host }}
+        run: |
+          kubectl create namespace app
+
+          cat <<EOF | kubectl apply -f -
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: sidecar-check
+            namespace: app
+          spec:
+            ingressClassName: does-not-exist
+            rules:
+              - host: ${HOST}
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: nowhere
+                          port:
+                            number: 80
+          EOF
+
+          # **status に住所を書き込む。** ExternalDNS の ingress source は
+          # status.loadBalancer.ingress から対象を決める。kind には
+          # LoadBalancer を割り当てる仕組みがないため、ここで与える。
+          #
+          # ingress controller を入れれば実物に近づくが、レコードが
+          # 反映されるかという検証の対象は変わらない。導入する分だけ
+          # 失敗しうる箇所が増える。
+          #
+          # 住所は TEST-NET-1 (RFC 5737) から採る。実在しない範囲であり、
+          # 誤って本物の宛先を指さない。
+          kubectl -n app patch ingress sidecar-check \
+            --subresource=status --type=merge \
+            -p '{"status":{"loadBalancer":{"ingress":[{"ip":"192.0.2.10"}]}}}'
+
+          kubectl -n app get ingress sidecar-check -o yaml
+
+      - name: レコードが 5 分以内に反映されることを確認する
+        env:
+          DPF_E2E_TOKEN_FILE: ${{ steps.creds.outputs.token_file }}
+          DPF_E2E_ZONE: ${{ vars.DPF_TEST_ZONE_NAME }}
+          DPF_E2E_WAIT_NAME: ${{ steps.creds.outputs.host }}
+          DPF_E2E_WAIT_STATE: present
+          # SC-001 の上限。ExternalDNS の同期間隔 (1m) と反映待ちを含む。
+          DPF_E2E_WAIT_BUDGET: 5m
+        run: go test ./test/e2e/... -run TestSidecarWait -v -count=1 -timeout=10m
+
+      - name: 差分が振動しないことを確認する
+        # SC-007: ExternalDNS が同一の差分を繰り返し検出し続けない。
+        #
+        # 判定は本 provider の計測値で行う。反映後に一定時間おいて
+        # dns_record_changes_total が増えていなければ、同じ差分の再適用は
+        # 起きていない。ログの文言に頼るより、上流の実装変更に強い。
+        run: |
+          kubectl -n "$NAMESPACE" port-forward \
+            deployment/external-dns 18080:8080 >/dev/null 2>&1 &
+          pf=$!
+          trap 'kill "$pf" 2>/dev/null || :' EXIT
+
+          # port-forward の確立を待つ。すぐに curl すると接続を拒まれる。
+          for _ in $(seq 30); do
+            if curl -fsS http://127.0.0.1:18080/healthz >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+
+          changes() {
+            curl -fsS http://127.0.0.1:18080/metrics \
+              | awk '/^dns_record_changes_total/ {sum += $NF} END {printf "%d\n", sum}'
+          }
+
+          before=$(changes)
+          echo "変更件数 (観測開始): ${before}"
+
+          # ExternalDNS の同期間隔は 1 分。2 回以上の同期を挟む。
+          sleep 150
+
+          after=$(changes)
+          echo "変更件数 (150 秒後): ${after}"
+
+          if [ "$after" != "$before" ]; then
+            echo "::error::同じ差分が再適用されている (${before} → ${after})。差分が振動している (SC-007)"
+
+            # **コンテナごとに分けて出す。** --all-containers だとどちらの
+            # 出力か分からず、ExternalDNS の判断と provider の受け取りを
+            # 突き合わせられない。
+            #
+            # 件数は debug 前提で多めに取る。ExternalDNS はレコードごとの
+            # 差分の判断を debug でしか出さず、200 行では同期 1 周分すら
+            # 収まらないことがある。
+            #
+            # コンテナ名は**実行時に取る。** チャートが決める名前をこちらで
+            # 決め打ちすると、名前が変わった日に診断ログだけが静かに失われる。
+            pod=$(kubectl -n "$NAMESPACE" get pod \
+              -l app.kubernetes.io/name=external-dns \
+              -o jsonpath='{.items[0].metadata.name}')
+            for c in $(kubectl -n "$NAMESPACE" get pod "$pod" \
+                         -o jsonpath='{range .spec.containers[*]}{.name}{"\n"}{end}'); do
+              echo "===== container: ${c} ====="
+              kubectl -n "$NAMESPACE" logs "$pod" -c "$c" --tail=2000 || :
+            done
+
+            exit 1
+          fi
+          echo "OK: 150 秒の間に追加の適用は発生しなかった"
+
+      - name: Ingress を削除するとレコードも削除されることを確認する
+        env:
+          DPF_E2E_TOKEN_FILE: ${{ steps.creds.outputs.token_file }}
+          DPF_E2E_ZONE: ${{ vars.DPF_TEST_ZONE_NAME }}
+          DPF_E2E_WAIT_NAME: ${{ steps.creds.outputs.host }}
+          DPF_E2E_WAIT_STATE: absent
+          DPF_E2E_WAIT_BUDGET: 5m
+        run: |
+          kubectl -n app delete ingress sidecar-check
+          go test ./test/e2e/... -run TestSidecarWait -v -count=1 -timeout=10m
+
+      - name: 失敗したときのログを残す
+        if: failure()
+        run: |
+          kubectl -n "$NAMESPACE" describe pods || :
+          kubectl -n "$NAMESPACE" logs deployment/external-dns --all-containers --tail=2000 || :
+          kubectl -n app get ingress -o yaml || :
+
+      - name: 残留レコードを消す
+        # **成否にかかわらず実行する。** 検証用ゾーンにレコードを残すと、
+        # 以降の実行で件数の表明が崩れる。
+        if: always()
+        env:
+          DPF_E2E_TOKEN_FILE: ${{ steps.creds.outputs.token_file }}
+          DPF_E2E_ZONE: ${{ vars.DPF_TEST_ZONE_NAME }}
+          DPF_E2E_DELETE_PREFIX: ${{ steps.creds.outputs.host }}
+        run: go test ./test/e2e/... -run TestSidecarForceDelete -v -count=1 -timeout=15m
+
+      - name: トークンを消す
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dpf-token"

@@ -1,0 +1,37 @@
+# Build output
+/bin/
+/dist/
+# make sbom / リリースワークフローの生成物
+/sbom.spdx.json
+*.exe
+*.test
+*.out
+
+# Go workspace
+go.work
+go.work.sum
+vendor/
+
+# Credentials and local config — never commit
+*.pem
+*.key
+*.crt
+.env
+.env.*
+/token
+/secrets/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+.vscode/
+.idea/
+
+# エージェントの作業用 worktree (リポジトリ本体の一部ではない)
+.claude/*
+!.claude/skills/
+!.claude/commands/
+!.claude/agents/
+!.claude/settings.json

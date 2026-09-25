@@ -1,0 +1,179 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# 脆弱性検査を定期的に実行する。
+#
+# constitution「開発ワークフローと品質ゲート」: govulncheck とコンテナイメージの
+# 脆弱性スキャンは、PR 時に加えて定期的に実行すること (MUST)。
+#
+# **コード変更がなくても新たな脆弱性は公開される。** PR 時の実行だけでは、
+# 最後のマージ以降に公開された脆弱性を検出できない。稼働中の配布物が
+# 影響を受けていることに気付けないまま時間が過ぎる。
+name: scheduled-scan
+
+on:
+  schedule:
+    # 毎日 02:00 UTC (JST 11:00)。日本時間の業務時間帯に結果が出るようにする。
+    - cron: "0 2 * * *"
+
+  # 手動でも回せるようにしておく。
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # 検出時に issue を立てる。
+  issues: write
+  # 提案の照合と滞留の判定に、開いている Pull Request の一覧が要る。
+  pull-requests: read
+
+env:
+  # Makefile および ci.yml と同じ値。
+  GOVULNCHECK_VERSION: v1.7.0
+  IMAGE_NAME: external-dns-iij-dpf-webhook
+
+jobs:
+  govulncheck:
+    name: 依存の脆弱性を検査する
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: govulncheck を実行する
+        # バージョンを固定するため自前で導入する (constitution v1.3.0)。
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@"${GOVULNCHECK_VERSION}"
+          make vuln
+
+  image:
+    name: 配布イメージの脆弱性を走査する
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: buildx を用意する
+        uses: docker/setup-buildx-action@v4.4.0
+
+      - name: イメージをビルドする
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: build/Containerfile
+          load: true
+          push: false
+          tags: ${{ env.IMAGE_NAME }}:scheduled
+
+      - name: 脆弱性を走査する
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:scheduled
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+  # 更新が提案されていないことに気付けるようにする (FR-017、SC-009)。
+  #
+  # Dependabot の更新処理が壊れている状態は、「更新がない」状態と外から
+  # 区別がつかない。**Dependabot に依存しない側から数えて突き合わせる**
+  # (research R4)。
+  proposals:
+    name: 更新の提案が欠けていないか検査する
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 更新可能な依存と開いている提案を突き合わせる
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 更新可能な依存を自分で数える。-json は Update.Time を持ち、
+          # 待機期間の判定に使える。
+          go list -m -u -json all > /tmp/modules.json
+
+          # Dependabot が開いている Pull Request。まとめられているため
+          # 1 件の本文に多数の依存が並ぶ。
+          gh pr list --state open --author "app/dependabot" \
+            --limit 100 --json number,title,body > /tmp/dependabot-prs.json
+
+          python3 .github/scripts/check_update_proposals.py \
+            /tmp/modules.json /tmp/dependabot-prs.json
+
+  # 取り込まれずに残っている提案に気付けるようにする (FR-018、SC-008)。
+  #
+  # **自動では閉じない (FR-011)。** 閉じても更新の必要は消えない。
+  stale:
+    name: 更新の提案が滞留していないか検査する
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: 開いたままの提案の経過日数を調べる
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr list --state open --author "app/dependabot" \
+            --limit 100 --json number,title,createdAt,url > /tmp/dependabot-prs.json
+
+          python3 .github/scripts/check_stale_prs.py /tmp/dependabot-prs.json
+
+  # 検出されたら issue で知らせる。定期実行の失敗は誰も見ていないため、
+  # ワークフローが赤くなるだけでは気付かれない。
+  notify:
+    name: 検出を通知する
+    runs-on: ubuntu-latest
+    needs: [govulncheck, image, proposals, stale]
+    if: failure()
+
+    steps:
+      - name: issue を立てる
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VULN_RESULT: ${{ needs.govulncheck.result }}
+          IMAGE_RESULT: ${{ needs.image.result }}
+          PROPOSALS_RESULT: ${{ needs.proposals.result }}
+          STALE_RESULT: ${{ needs.stale.result }}
+        run: |
+          # **検出の種別ごとに別の issue を立てる。** 題名を共通にすると、
+          # 重複抑止が働いて別種の検出が 1 つの issue に埋もれる。
+          # 脆弱性と「提案が来ていない」は、必要な対応がまったく違う。
+          set -u
+
+          notify() { # $1=題名 $2=ラベル $3=本文
+            existing=$(gh issue list --state open --label "$2" --search "$1 in:title" \
+              --json number,title --jq "map(select(.title == \"$1\")) | .[0].number // empty")
+            if [ -n "$existing" ]; then
+              # 毎日立て続けると通知が埋もれ、かえって気付かれなくなる。
+              gh issue comment "$existing" --body "再検出しました: $RUN_URL"
+              return
+            fi
+            gh issue create --title "$1" --label "$2" --body "$3"
+          }
+
+          if [ "$VULN_RESULT" = "failure" ] || [ "$IMAGE_RESULT" = "failure" ]; then
+            notify "定期スキャンで脆弱性を検出しました" security \
+              "$(printf '定期スキャンで脆弱性が検出されました。\n\n実行結果: %s\n\nコード変更がなくても新たな脆弱性は公開されます。内容を確認し、依存の更新または影響評価を行ってください。\n' "$RUN_URL")"
+          fi
+
+          if [ "$PROPOSALS_RESULT" = "failure" ]; then
+            notify "依存の更新が提案されていません" dependencies \
+              "$(printf '更新可能な依存があるのに、対応する更新 Pull Request がありません。\n\n実行結果: %s\n\n**「更新がない」のではなく、提案の仕組みが動いていない可能性があります。**\nInsights → Dependency graph → Dependabot でエラーを確認してください。\n' "$RUN_URL")"
+          fi
+
+          if [ "$STALE_RESULT" = "failure" ]; then
+            notify "更新 Pull Request が滞留しています" dependencies \
+              "$(printf '30 日を超えて取り込まれていない更新 Pull Request があります。\n\n実行結果: %s\n\n自動では閉じません。取り込むか、取り込まない理由を残してください。\n' "$RUN_URL")"
+          fi
