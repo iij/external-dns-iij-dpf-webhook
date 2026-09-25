@@ -39,11 +39,18 @@ const (
 //
 // 取得できるまで待つ ([utils.WithLockWait])。既定は待たずに諦めるが、
 // 他者の適用は通常すぐ終わるため、待った方が無駄な失敗を返さずに済む。
-// 待ち時間の上限は [lockWait] が与える。
-func lockOptions() []utils.Option {
-	return []utils.Option{
-		utils.WithTTL(lockTTL),
-		utils.WithLockWait(lockPollInterval),
+// **待ち方は排他の性質ではなく実行 1 回ごとの判断であり**、保持期間 ([utils.WithTTL])
+// とは別の種類の設定として渡す。待ち時間の上限は [lockWait] が与える。
+//
+// **排他の仕組みは差し替えない** ([utils.WithLocker] を使わない)。既定のレコードを
+// 用いる排他は、編集中のレコードへの他ユーザからの編集を DPF が拒むため、
+// **本ライブラリを使っていない相手 (管理画面や人手の操作) にも効く。** 外部の
+// 仕組みに替えるとこの効果が失われ、README の利用前提条件 PC-001 が拠って立つ
+// 前提が崩れる。
+func lockOptions() []utils.ApplierOption {
+	return []utils.ApplierOption{
+		utils.WithLockOptions(utils.WithTTL(lockTTL)),
+		utils.WithHoldOptions(utils.WithLockWait(lockPollInterval)),
 	}
 }
 
