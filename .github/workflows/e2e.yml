@@ -213,3 +213,26 @@ jobs:
       - name: トークンを消す
         if: always()
         run: rm -f "${RUNNER_TEMP}/dpf-token"
+
+  # ExternalDNS とのサイドカー構成での検証 (T083、SC-001/SC-004/SC-007)。
+  #
+  # **別のワークフローとして起動しない。** 検証用ゾーンを共有するため
+  # concurrency グループを揃える必要があるが、別々の実行にすると 1 つの枠を
+  # 奪い合い、待機中のものが cancel される。同じ実行に入れれば奪い合いは
+  # 起きない。
+  #
+  # `needs` で scale の後ろに繋ぐ。**同じ実行の中でもジョブは並列に走る。**
+  # 繋がないと、検証用ゾーンを同時に書き換えて互いの表明を壊す。
+  #
+  # 起動の条件は scale と揃える。`main` へ向けた PR と手動実行に限る。
+  # クラスタの起動とイメージのビルドを含み、すべての PR で走らせると
+  # 開発の回転が落ちる。
+  sidecar:
+    needs: scale
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.base.ref == 'main'
+    uses: ./.github/workflows/e2e-sidecar.yml
+    # 呼ばれた側が secrets.DPF_TOKEN を使う。再利用ワークフローへは
+    # 明示的に渡す必要がある。
+    secrets: inherit
