@@ -46,7 +46,7 @@ jobs:
       - name: govulncheck を実行する
         # バージョンを固定するため自前で導入する (constitution v1.3.0)。
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+          go install golang.org/x/vuln/cmd/govulncheck@"${GOVULNCHECK_VERSION}"
           make vuln
 
   image:
