@@ -35,6 +35,7 @@ func TestClassify_Temporary(t *testing.T) {
 		{"HTTP 504", httpStatusError(http.StatusGatewayTimeout)},
 		{"レート制限", httpStatusError(http.StatusTooManyRequests)},
 		{"ロック取得不能", utils.ErrStillLock},
+		{"ロックの喪失", utils.ErrNotLockHolder},
 		{"文脈の期限切れ", context.DeadlineExceeded},
 	}
 
@@ -209,6 +210,87 @@ func TestClassify_Idempotent(t *testing.T) {
 		t.Errorf("再分類で一時的にもなった: %v", twice)
 	}
 }
+
+// dpf-go の内側で完結する経路のエラーも、状態コードで分類される。
+//
+// [utils.ZoneApplier] を使う適用の経路では、応答 (*http.Response) に手が
+// 届かないため apiError に包めない。**ここが効かないと、DPF が 400 で拒む
+// 要求を ExternalDNS が永久に再試行する。**
+func TestClassify_RawAPIErrorUsesStatusLine(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		status    string
+		permanent bool
+	}{
+		{"形式違反", "400 Bad Request", true},
+		{"権限不足", "403 Forbidden", true},
+		{"レート制限", "429 Too Many Requests", false},
+		{"DPF の障害", "503 Service Unavailable", false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := Classify(&rawAPIError{message: c.status})
+
+			if c.permanent && !errors.Is(got, provider.ErrPermanent) {
+				t.Errorf("Classify(%q) が恒久的に分類されていない: %v", c.status, got)
+			}
+			if !c.permanent && !errors.Is(got, provider.ErrTemporary) {
+				t.Errorf("Classify(%q) が一時的に分類されていない: %v", c.status, got)
+			}
+		})
+	}
+}
+
+// 生の API エラーでも、DPF が返した応答本文は失われない。
+//
+// 状態行だけでは 400 の理由が分からず、`request_id` も残らない。
+func TestClassify_RawAPIErrorKeepsBody(t *testing.T) {
+	t.Parallel()
+
+	body := `{"request_id":"abc123","error_type":"ParameterError","error_message":"records は必須です"}`
+
+	got := Classify(&rawAPIError{message: "400 Bad Request", body: []byte(body)}).Error()
+	for _, want := range []string{"ParameterError", "records は必須です", "abc123"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("エラーメッセージに %q が含まれない: %v", want, got)
+		}
+	}
+}
+
+// 状態行を読み取れない場合は一時的に倒す。
+//
+// 読み違えて恒久的に倒すと、復旧しうる障害で DNS の更新が止まる。
+func TestClassify_RawAPIErrorWithoutStatusIsTemporary(t *testing.T) {
+	t.Parallel()
+
+	for _, message := range []string{"", "unexpected EOF", "999 Nonexistent"} {
+		got := Classify(&rawAPIError{message: message})
+		if !errors.Is(got, provider.ErrTemporary) {
+			t.Errorf("Classify(%q) が一時的に分類されていない: %v", message, got)
+		}
+		if errors.Is(got, provider.ErrPermanent) {
+			t.Errorf("Classify(%q) が恒久的にも分類されている: %v", message, got)
+		}
+	}
+}
+
+// rawAPIError は dpf-go の GenericOpenAPIError を模す。
+//
+// 本物は状態コードも本文も公開しておらず、値を持つものをテストから
+// 組み立てられない。分類が見ているもの (状態行を先頭に持つメッセージと本文) を
+// そのまま備える。
+type rawAPIError struct {
+	message string
+	body    []byte
+}
+
+func (e *rawAPIError) Error() string { return e.message }
+func (e *rawAPIError) Body() []byte  { return e.body }
 
 // httpStatusError は指定の状態コードを伴う dpf-go 由来のエラーを模す。
 func httpStatusError(code int) error {
