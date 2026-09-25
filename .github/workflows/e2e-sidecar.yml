@@ -15,20 +15,27 @@
 name: e2e-sidecar
 
 on:
-  # 手動実行と、`main` へ向けた PR に限る。クラスタの起動とイメージの
-  # ビルドを含み、反映の待ち合わせに最大 5 分かかる。
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
+  # **e2e ワークフローから呼ばれる。単独では起動しない。**
+  #
+  # 以前は `main` へ向けた PR で直接起動していた。ところが e2e も同じ PR で
+  # 起動し、検証用ゾーンを直列化するための concurrency グループを共有して
+  # いたため、**1 つの枠を 2 つの実行が奪い合っていた。** GitHub の
+  # concurrency は「実行中 1 + 待機 1」しか保持せず、3 つ目が来ると待機中の
+  # ものを cancel する。push のたびに 2 つ増えるため、毎回こちらが枠を取り、
+  # e2e が待機のまま押し出されていた。**しかも cancel された実行は検査として
+  # PR に出ないため、実 DPF 検証が一度も行われないまま全部緑に見えていた。**
+  #
+  # 呼ばれる側にすることで、e2e と同じ 1 つの実行に入る。奪い合いは起きず、
+  # 順序は呼び出し側の `needs` が決める。手動実行は e2e ワークフローを
+  # 起動すること (この検証もその中で走る)。
+  workflow_call:
 
 permissions:
   contents: read
 
-# 検証用ゾーンを共有するため、e2e と同じ理由で並列実行を抑止する。
-# **e2e ワークフローとも競合する。** グループ名を揃えて直列化する。
-concurrency:
-  group: e2e-verification-zone
-  cancel-in-progress: false
+# **concurrency をここに置かない。** 呼び出し側の実行が既に
+# `e2e-verification-zone` を保持しており、呼ばれた側が同じグループを取りに
+# いくと自分自身の待ちになる。検証用ゾーンの直列化は呼び出し側が担う。
 
 env:
   IMAGE_NAME: external-dns-iij-dpf-webhook

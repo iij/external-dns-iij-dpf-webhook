@@ -244,11 +244,29 @@ func (f *fixture) records(t *testing.T) []wireEndpoint {
 }
 
 // find は一覧から名前と種別で 1 件を探す。
+//
+// **名前は [dnsname.Name] どうしで比べる。文字列として比べない。** 応答が返す
+// のは ExternalDNS へ渡す表記 (末尾ドットなし) であり、検証側が組み立てる名前は
+// 正準名 (末尾ドットあり) である。素の文字列一致で照合すると、表記の違いだけで
+// 「反映されていない」と読めてしまう。[dnsname.Name.Unqualified] の godoc が
+// 「戻り値を判定や比較に使わないこと。比較は Name どうしで行う」と定めている。
 func (f *fixture) find(t *testing.T, name, rrtype string) (wireEndpoint, bool) {
 	t.Helper()
 
+	want, err := dnsname.Parse(name)
+	if err != nil {
+		t.Fatalf("探す名前を解釈できません: %v: %q", err, name)
+	}
+
 	for _, e := range f.records(t) {
-		if e.DNSName == name && e.RecordType == rrtype {
+		if e.RecordType != rrtype {
+			continue
+		}
+		got, parseErr := dnsname.Parse(e.DNSName)
+		if parseErr != nil {
+			continue
+		}
+		if got == want {
 			return e, true
 		}
 	}
@@ -381,14 +399,19 @@ func TestWebhookContract(t *testing.T) {
 
 	t.Run("GET /records は正規化名と対応種別のみを返す", func(t *testing.T) {
 		for _, e := range f.records(t) {
-			// 返される名前は正規化名 (小文字・末尾ドット) であること。
-			// ExternalDNS は文字列として突き合わせるため、表現が揺れると
-			// 同じレコードを別物と見て差分が振動する。
+			// 返される名前は ExternalDNS へ渡す表記 (小文字・**末尾ドットなし**)
+			// であること。ExternalDNS の TXT レジストリは所有権レコードの有無を
+			// 素の文字列一致で照合し、生成側は末尾ドットを持たない。ドット付きで
+			// 返すと照合が必ず外れ、差分が永久に振動する (SC-007)。
 			if e.DNSName != strings.ToLower(e.DNSName) {
-				t.Errorf("%q に大文字が含まれる。正規化名でない", e.DNSName)
+				t.Errorf("%q に大文字が含まれる。正規化されていない", e.DNSName)
 			}
-			if !strings.HasSuffix(e.DNSName, ".") {
-				t.Errorf("%q が末尾ドットで終わらない。正規化名でない", e.DNSName)
+			if strings.HasSuffix(e.DNSName, ".") {
+				t.Errorf("%q が末尾ドットで終わる。ExternalDNS の表記でない (SC-007)", e.DNSName)
+			}
+			// 表記を落としても名前として解釈できること。
+			if _, err := dnsname.Parse(e.DNSName); err != nil {
+				t.Errorf("%q を名前として解釈できない: %v", e.DNSName, err)
 			}
 
 			// 許可リスト外の種別を返さない (FR-027)。SOA や CAA を返すと
