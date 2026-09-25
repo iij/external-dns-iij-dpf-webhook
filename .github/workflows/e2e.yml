@@ -63,6 +63,9 @@ jobs:
           ZONE_NAME: ${{ vars.DPF_TEST_ZONE_NAME }}
           GITHUB_ACTOR: ${{ github.actor }}
         run: |
+          # 要約に出すのは Markdown であり、`DPF_TOKEN` などはコード表記である。
+          # シェルに展開させたい変数ではないため、単引用符のままにする。
+          # shellcheck disable=SC2016
           # 資格情報が揃っていなければ検証は行われない。**それを見逃さないよう
           # 明示する。** 「テストが緑」と「検証が行われた」は別のことである。
           if [ -z "$DPF_TOKEN" ] || [ -z "$ZONE_NAME" ]; then
@@ -160,6 +163,9 @@ jobs:
           ZONE_NAME: ${{ vars.DPF_TEST_ZONE_NAME }}
           GITHUB_ACTOR: ${{ github.actor }}
         run: |
+          # 要約に出すのは Markdown であり、`DPF_TOKEN` などはコード表記である。
+          # シェルに展開させたい変数ではないため、単引用符のままにする。
+          # shellcheck disable=SC2016
           if [ -z "$DPF_TOKEN" ] || [ -z "$ZONE_NAME" ]; then
             echo "::error::DPF_TOKEN と DPF_TEST_ZONE_NAME が未設定です。規模の検証が行われません"
             {

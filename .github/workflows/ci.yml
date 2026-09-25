@@ -47,7 +47,7 @@ jobs:
       - name: betterleaks を導入する
         # バージョンを固定する。同一の履歴に対する判定結果が
         # ツールの更新で変わらないようにするため (constitution v1.12.0)。
-        run: go install github.com/betterleaks/betterleaks@${BETTERLEAKS_VERSION}
+        run: go install github.com/betterleaks/betterleaks@"${BETTERLEAKS_VERSION}"
 
       - name: 履歴を検査する
         # 設定はリポジトリの .betterleaks.toml を使う。手元と同一にするため。
@@ -78,7 +78,7 @@ jobs:
         # Dependabot の github-actions 種別がアクションの版を自動で書き換える。
         # 書き換え後のワークフローが妥当であることを機械的に確かめる。
         run: |
-          go install github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}
+          go install github.com/rhysd/actionlint/cmd/actionlint@"${ACTIONLINT_VERSION}"
           make workflow-lint
 
       - name: 全 Go ファイルに SPDX ヘッダがあることを確認する
@@ -116,7 +116,7 @@ jobs:
         # ツールのバージョン固定を求めるため、自前で導入して make 経由で実行する。
         # 到達可能な脆弱性のみが対象であり、呼び出していないものは止めない。
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+          go install golang.org/x/vuln/cmd/govulncheck@"${GOVULNCHECK_VERSION}"
           make vuln
 
       - name: 依存ライセンスが許容範囲に収まることを確認する
