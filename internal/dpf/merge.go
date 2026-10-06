@@ -4,6 +4,8 @@ package dpf
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 
 	dpfapi "github.com/iij/dpf-go"
 
@@ -158,6 +160,53 @@ func guard(current []dpfapi.OverwriteRecordsInner, set []dpfapi.OverwriteRecords
 	}
 
 	return nil
+}
+
+// unchanged は投入集合が反映済みの内容と同じであるかを返す。
+//
+// ExternalDNS が値の変わらない更新を送ってきた場合や、前回の適用が反映まで
+// 進んだのに応答が届かず再送された場合に、同じ内容の反映を省くために使う。
+//
+// **要素ごと・並び順どおりに比較する。** [merge] は反映済みの並び順を保ち、
+// 新しいレコードを末尾に足すため、内容が同じなら並びも同じになる。比較を
+// 緩めない。値の表記の違い (TXT の引用や大文字小文字) を同じとみなす判断は
+// 誤れば変更の取りこぼしになる。**同じと言い切れない場合は反映する側に倒す。**
+// 余計な反映は害が小さいが、必要な反映を省けば DNS が更新されない。
+func unchanged(current, set []dpfapi.OverwriteRecordsInner) bool {
+	if len(current) != len(set) {
+		return false
+	}
+	for i := range current {
+		if !sameRecord(&current[i], &set[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// sameRecord は 2 つのレコードが投入内容として同じであるかを返す。
+//
+// ラベルの nil と空のマップは同じとみなす。[merge] は送るために nil を空の
+// マップへ置き換えるが、DPF 上の状態としては違いがない。
+func sameRecord(a, b *dpfapi.OverwriteRecordsInner) bool {
+	if a.Name != b.Name || a.Rrtype != b.Rrtype || a.Description != b.Description {
+		return false
+	}
+	if !maps.Equal(a.Labels, b.Labels) {
+		return false
+	}
+
+	at, bt := a.Ttl.Get(), b.Ttl.Get()
+	if (at == nil) != (bt == nil) || (at != nil && *at != *bt) {
+		return false
+	}
+
+	return slices.EqualFunc(a.Rdata, b.Rdata, func(x, y dpfapi.RecordsRdataInner) bool {
+		if x.Value == nil || y.Value == nil {
+			return x.Value == nil && y.Value == nil
+		}
+		return *x.Value == *y.Value
+	})
 }
 
 // keyOf は DPF 側の名前と種別から突き合わせ用の鍵を作る。
