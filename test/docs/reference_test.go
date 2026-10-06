@@ -28,7 +28,6 @@ const referencePath = "../../docs/reference.md"
 // 変更する必要があり、差分としてレビューに現れる。
 var expectedMarkers = []string{
 	"flags",
-	"secret-managers",
 	"metrics",
 	"dpf-operations",
 	"record-types",
@@ -211,48 +210,6 @@ func parseUsage(usage string) map[string]string {
 		}
 	}
 	return out
-}
-
-// シークレット管理サービスの名前が文書と一致すること。
-func TestReference_SecretManagers(t *testing.T) {
-	t.Parallel()
-
-	doc := readReference(t)
-	docNames := docColumn(t, doc, "secret-managers", 0)
-
-	impl, err := sliceVarStrings("../../internal/config", "supportedSecretManagers")
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	if len(impl) == 0 {
-		t.Fatal("supportedSecretManagers が見つかりません。変数名が変わった可能性があります")
-	}
-	assertSameSet(t, "シークレット管理サービス", docNames, impl)
-
-	// 名前が一致するだけでなく、実際に受理されることを確かめる。
-	// 一覧が使われていない状態を検出する。
-	for _, name := range docNames {
-		args := []string{
-			"--domain-filter=example.jp",
-			"--dpf-token-secret-manager=" + name,
-			"--dpf-token-secret-id=dummy",
-		}
-		if name == "azure" {
-			args = append(args, "--dpf-token-secret-endpoint=https://example.vault.azure.net/")
-		}
-		if _, err := config.Load(args); err != nil {
-			t.Errorf("--dpf-token-secret-manager=%s が受理されません: %v", name, err)
-		}
-	}
-
-	// 実在しない名前は拒否されること。
-	if _, err := config.Load([]string{
-		"--domain-filter=example.jp",
-		"--dpf-token-secret-manager=nonexistent",
-		"--dpf-token-secret-id=dummy",
-	}); err == nil {
-		t.Error("実在しないシークレット管理サービスが受理されました")
-	}
 }
 
 // 出力に現れる計測値の系列名が文書と一致すること。

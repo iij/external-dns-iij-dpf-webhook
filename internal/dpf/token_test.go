@@ -34,7 +34,7 @@ func TestNewTokenProvider_File(t *testing.T) {
 	dir := t.TempDir()
 	path := writeToken(t, dir, "  token-value\n")
 
-	tp, err := newTokenProvider(t.Context(), config.DPF{TokenFile: path})
+	tp, err := newTokenProvider(config.DPF{TokenFile: path})
 	if err != nil {
 		t.Fatalf("newTokenProvider = error %v", err)
 	}
@@ -59,7 +59,7 @@ func TestNewTokenProvider_FileReflectsRotation(t *testing.T) {
 	dir := t.TempDir()
 	path := writeToken(t, dir, "old-token")
 
-	tp, err := newTokenProvider(t.Context(), config.DPF{TokenFile: path})
+	tp, err := newTokenProvider(config.DPF{TokenFile: path})
 	if err != nil {
 		t.Fatalf("newTokenProvider = error %v", err)
 	}
@@ -92,7 +92,7 @@ func TestNewTokenProvider_FileErrorDoesNotLeakContent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "missing-token")
 
-	tp, err := newTokenProvider(t.Context(), config.DPF{TokenFile: path})
+	tp, err := newTokenProvider(config.DPF{TokenFile: path})
 	if err != nil {
 		t.Fatalf("newTokenProvider = error %v", err)
 	}
@@ -121,49 +121,9 @@ func TestNewTokenProvider_IgnoresEnvironment(t *testing.T) {
 	t.Setenv("DPF_API_TOKEN", "token-from-env")
 
 	// 供給元が設定されていなければ、環境変数があってもプロバイダを作れない。
-	_, err := newTokenProvider(t.Context(), config.DPF{})
+	_, err := newTokenProvider(config.DPF{})
 	if err == nil {
 		t.Fatal("環境変数のトークンでプロバイダが作れてしまった")
-	}
-}
-
-// 未対応のシークレット管理サービスは拒否する (許可リスト方式)。
-func TestNewTokenProvider_RejectsUnknownSecretManager(t *testing.T) {
-	t.Parallel()
-
-	_, err := newTokenProvider(t.Context(), config.DPF{
-		SecretManager: "unknown",
-		SecretID:      "id",
-	})
-	if err == nil {
-		t.Fatal("未対応のシークレット管理サービスを受け入れた")
-	}
-	if !strings.Contains(err.Error(), "unknown") {
-		t.Errorf("エラーに指定値が含まれていない: %v", err)
-	}
-}
-
-// FR-035: 対応する 4 つのシークレット管理サービスが選択肢として存在する。
-//
-// 実際の接続には各クラウドの資格情報が要るため、ここでは「経路が用意されており、
-// 接続前に未対応として弾かれないこと」だけを確かめる。
-func TestNewTokenProvider_KnownSecretManagersAreRoutable(t *testing.T) {
-	t.Parallel()
-
-	for _, sm := range []string{"vault", "aws", "azure", "gcp"} {
-		t.Run(sm, func(t *testing.T) {
-			t.Parallel()
-
-			_, err := newTokenProvider(t.Context(), config.DPF{
-				SecretManager: sm,
-				SecretID:      "some-secret",
-			})
-			// 接続や資格情報の解決で失敗するのは環境依存であり、ここでは許容する。
-			// 許してはならないのは「未対応」として弾かれることだけ。
-			if err != nil && strings.Contains(err.Error(), "未対応") {
-				t.Errorf("%s が未対応として弾かれた: %v", sm, err)
-			}
-		})
 	}
 }
 

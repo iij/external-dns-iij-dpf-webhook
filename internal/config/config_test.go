@@ -129,62 +129,6 @@ func TestLoad_AcceptsTokenFile(t *testing.T) {
 	}
 }
 
-// FR-035: トークンを外部のシークレット管理サービスから取得させられる。
-func TestLoad_AcceptsSecretManager(t *testing.T) {
-	t.Parallel()
-
-	cfg, err := config.Load([]string{
-		"--dpf-token-secret-manager", "aws",
-		"--dpf-token-secret-id", "prod/dpf/token",
-	})
-	if err != nil {
-		t.Fatalf("Load = error %v, want success", err)
-	}
-	if cfg.DPF.SecretManager != "aws" {
-		t.Errorf("SecretManager = %q, want %q", cfg.DPF.SecretManager, "aws")
-	}
-	if cfg.DPF.SecretID != "prod/dpf/token" {
-		t.Errorf("SecretID = %q, want %q", cfg.DPF.SecretID, "prod/dpf/token")
-	}
-}
-
-// 供給元は 1 つに定める。両方指定はどちらが使われるか曖昧になるため拒否する。
-func TestLoad_RejectsBothTokenSources(t *testing.T) {
-	t.Parallel()
-
-	_, err := config.Load([]string{
-		"--dpf-token-file", tokenFile(t, "dummy-token"),
-		"--dpf-token-secret-manager", "aws",
-		"--dpf-token-secret-id", "prod/dpf/token",
-	})
-	if err == nil {
-		t.Fatal("2 つのトークン供給元を同時に指定して成功した")
-	}
-}
-
-// 対応していないシークレット管理サービスは拒否する (許可リスト方式、原則 VI)。
-func TestLoad_RejectsUnknownSecretManager(t *testing.T) {
-	t.Parallel()
-
-	_, err := config.Load([]string{
-		"--dpf-token-secret-manager", "unknown-vault",
-		"--dpf-token-secret-id", "id",
-	})
-	if err == nil {
-		t.Fatal("未対応のシークレット管理サービスを受け入れた")
-	}
-}
-
-// シークレット管理サービスを指定したら、対象の識別子も要る。
-func TestLoad_SecretManagerRequiresSecretID(t *testing.T) {
-	t.Parallel()
-
-	_, err := config.Load([]string{"--dpf-token-secret-manager", "aws"})
-	if err == nil {
-		t.Fatal("シークレット識別子なしで受け入れた")
-	}
-}
-
 // FR-002: domain filter 未設定は「範囲なし」。全ドメイン管理に読み替えない。
 func TestLoad_EmptyDomainFilterMeansNoScope(t *testing.T) {
 	t.Parallel()
