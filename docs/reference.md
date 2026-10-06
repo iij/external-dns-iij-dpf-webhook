@@ -64,10 +64,7 @@ kubelet の probe と Prometheus のスクレイプを受ける。Pod 外から�
 |---|---|---|
 | `--domain-filter` | (なし) | 管理対象ドメイン。複数指定可。**未指定なら管理対象なし** |
 | `--dpf-endpoint` | (なし) | DPF API のエンドポイント。未指定なら `dpf-go` の既定値 |
-| `--dpf-token-file` | (なし) | アクセストークンを収めたファイルのパス |
-| `--dpf-token-secret-manager` | (なし) | `vault` \| `aws` \| `azure` \| `gcp` |
-| `--dpf-token-secret-id` | (なし) | シークレット管理サービス上の識別子 |
-| `--dpf-token-secret-endpoint` | (なし) | サービスごとに意味が違う。[下記参照](#アクセストークンの供給元) |
+| `--dpf-token-file` | (なし) | アクセストークンを収めたファイルのパス。**必須** |
 | `--provider-addr` | `127.0.0.1:8888` | provider リスナーの待ち受けアドレス |
 | `--exposed-addr` | `:8080` | exposed リスナーの待ち受けアドレス |
 | `--otlp-endpoint` | (なし) | OTLP の送出先。**未指定なら送出しない** |
@@ -81,14 +78,14 @@ kubelet の probe と Prometheus のスクレイプを受ける。Pod 外から�
 |---|---|
 | `--dpf-token` | トークンを引数で渡す経路は作らない。プロセス一覧から読める |
 | 環境変数 `DPF_API_TOKEN` | `kubectl describe pod` とプロセス環境から読める。`dpf-go` の既定経路をあえて使わない |
+| `--dpf-token-secret-manager`<br>`--dpf-token-secret-id`<br>`--dpf-token-secret-endpoint` | 外部のシークレット管理サービスから直接取得する経路は廃止した。供給元はマウントされたファイルに限る (constitution v3.0.0)。外部サービスの値は Kubernetes 側でファイルにする ([README](../README.md#外部のシークレット管理サービスを使う場合)) |
 
 いずれも指定すると**未定義のフラグとして起動に失敗する**。黙って無視しない。
+エラーには受け付けなかったフラグの名前が含まれる。
 
 ### 検証の規則
 
-- `--dpf-token-file` と `--dpf-token-secret-manager` は**どちらか一方**。併用は起動失敗
-- `--dpf-token-secret-manager` を指定したら `--dpf-token-secret-id` が必須
-- いずれの供給元も指定しなければ起動失敗
+- `--dpf-token-file` は**必須**。指定しなければ起動失敗
 - `--domain-filter` が未指定でも**起動する**。ただし管理対象は空になり、
   レコードは 1 件も変更されない (原則 VI)
 
@@ -96,50 +93,9 @@ kubelet の probe と Prometheus のスクレイプを受ける。Pod 外から�
 
 ## アクセストークンの供給元
 
-供給元は**マウントされたファイル**と**外部シークレット管理サービス**の 2 系統に限る。
-
-### 用語について
-
-構成の文脈では「KMS」と呼ばれることがあるが、本サービスが対応するのは
-**シークレット管理サービス** (secret manager) である。任意の値を保管して
-取り出す用途のものであり、鍵の管理・暗号操作を行う KMS (Key Management Service)
-そのものではない。
-
-ただし AWS では両者が関係する。Secrets Manager のシークレットが
-カスタマー管理の KMS キーで暗号化されている場合、取得側に `kms:Decrypt` が
-必要になる ([下記](#aws-secrets-manager))。
-
-### 対応するシークレット管理サービス
-
-`--dpf-token-secret-manager` に渡せる値は次のとおり。
-
-<!-- reference:secret-managers -->
-
-| 値 | サービス |
-|---|---|
-| `vault` | HashiCorp Vault (KV シークレットエンジン) |
-| `aws` | AWS Secrets Manager |
-| `azure` | Azure Key Vault |
-| `gcp` | Google Secret Manager |
-
-### すべての供給元に共通する性質
-
-| 事項 | 振る舞い |
-|---|---|
-| 取得のタイミング | **DPF API を呼ぶたびに取得する。キャッシュしない** |
-| ローテーション | 外部で差し替えれば**再起動なしに**次の要求から反映される |
-| 値の整形 | 前後の空白を取り除く。末尾の改行は気にしなくてよい |
-| 取得失敗の分類 | **恒久的な失敗**。ExternalDNS は再試行しない |
-| 失敗時のメッセージ | 「アクセストークンを取得できませんでした」の定型文に置き換える。**トークン値やファイル内容を含めない** |
-
-**キャッシュしないことの代償**: シークレット管理サービスを使う場合、
-DPF API の呼び出し 1 回ごとにサービスへの問い合わせが 1 回発生する。
-ExternalDNS の同期間隔 (既定 1 分) ごとにレコード一覧の取得があり、
-変更時はさらに増える。呼び出し課金とレート制限に影響する。
-
-キャッシュ期間を指定する設定は**現在用意していない** ([既知の制限](#既知の制限))。
-
----
+供給元は**マウントされたファイル**に限る。外部のシークレット管理サービスへは
+接続しない。そこに置いた値を使う場合は、Kubernetes 側の仕組みで Pod 内の
+ファイルにする ([README](../README.md#外部のシークレット管理サービスを使う場合))。
 
 ### ファイル (Secret のマウント)
 
@@ -165,270 +121,16 @@ kubectl create secret generic dpf-token \
 `--from-literal=token=...` のキー名 (`token`) が、マウント先のファイル名になる。
 上の例では `/secrets/token` に置かれる。
 
----
+### 振る舞い
 
-### HashiCorp Vault
-
-```
---dpf-token-secret-manager=vault \
---dpf-token-secret-id=dpf/api
-```
-
-| 事項 | 内容 |
+| 事項 | 振る舞い |
 |---|---|
-| `--dpf-token-secret-id` | **KV シークレットエンジンのマウント配下のパス** |
-| マウントパス | **`secret` 固定** |
-| KV バージョン | **2 固定** |
-| 鍵の名前 | **`token` 固定** |
-| バージョン | 最新 |
-| `--dpf-token-secret-endpoint` | Vault の接続先 URL。省略時は `VAULT_ADDR` |
-
-**マウントパス・鍵の名前・KV バージョンは変更できない。** `dpf-go` 側には
-オプションがあるが、本サービスは既定のまま使う。
-
-上の例で読まれるのは、KV v2 マウント `secret` のパス `dpf/api` にある
-**`token` フィールド**である。格納は次のようになる。
-
-```bash
-vault kv put secret/dpf/api token='<DPF のアクセストークン>'
-```
-
-#### 必要な権限
-
-読み取り権限は **KV v2 のデータパス** に対して与える。`secret/dpf/api` ではなく
-`secret/data/dpf/api` である点に注意する。KV v2 は API 上のパスに `data/` が
-挟まる。
-
-```hcl
-path "secret/data/dpf/api" {
-  capabilities = ["read"]
-}
-```
-
-#### 認証
-
-Vault SDK の既定設定を用いる。**認証は環境変数で解決される。**
-
-| 環境変数 | 用途 |
-|---|---|
-| `VAULT_TOKEN` | **Vault の認証トークン。これがないと認証できない** |
-| `VAULT_ADDR` | 接続先。`--dpf-token-secret-endpoint` を指定した場合はそちらが優先 |
-| `VAULT_NAMESPACE` | Vault Enterprise の名前空間 |
-| `VAULT_CACERT` / `VAULT_CAPATH` / `VAULT_CACERT_BYTES` | サーバ証明書の検証 |
-| `VAULT_CLIENT_CERT` / `VAULT_CLIENT_KEY` | クライアント証明書 |
-| `VAULT_SKIP_VERIFY` | TLS 検証の無効化 |
-| `VAULT_TLS_SERVER_NAME` | 証明書の名前検証の上書き |
-| `VAULT_CLIENT_TIMEOUT` / `VAULT_MAX_RETRIES` | 接続の挙動 |
-| `VAULT_AGENT_ADDR` / `VAULT_PROXY_ADDR` | Agent / プロキシ経由の接続 |
-
-**本サービスは AppRole や Kubernetes 認証のログイン処理を行わない。**
-`VAULT_TOKEN` に有効なトークンが与えられている前提である。Kubernetes 上では
-Vault Agent Injector や Secrets Store CSI Driver で `VAULT_TOKEN` を用意する、
-あるいはそれらでトークンをファイルとして配置し `--dpf-token-file` を使う。
-
-> **注意**: `VAULT_TOKEN` は環境変数として渡すことになる。本サービスが DPF の
-> トークンを環境変数から受け取らないのは、`kubectl describe pod` やプロセス環境から
-> 読めるためである。**Vault の認証トークンにも同じ問題がある。** Vault を使うより
-> `--dpf-token-file` に CSI Driver でトークンを配置する方が、露出は小さい。
-
----
-
-### AWS Secrets Manager
-
-```
---dpf-token-secret-manager=aws \
---dpf-token-secret-id=prod/dpf/token
-```
-
-| 事項 | 内容 |
-|---|---|
-| `--dpf-token-secret-id` | シークレットの**名前**、または**完全な ARN** |
-| 鍵の位置 | シークレットの**値全体**がトークン。**JSON として解釈しない** |
-| バージョン | 最新 (`AWSCURRENT`) |
-| `--dpf-token-secret-endpoint` | **使わない**。リージョンは SDK の既定解決に従う |
-
-**シークレットの値には生のトークンを入れる。** `{"token": "..."}` のような
-JSON を入れると、その JSON 文字列全体がトークンとして DPF に送られ、認証に失敗する。
-
-```bash
-aws secretsmanager create-secret \
-  --name prod/dpf/token \
-  --secret-string '<DPF のアクセストークン>'
-```
-
-コンソールで作る場合は「その他のシークレットのタイプ」→「プレーンテキスト」を
-選ぶ。「キー/値」で作ると JSON になる。
-
-`SecretString` が空の場合は `SecretBinary` が使われる。
-
-#### 認証
-
-AWS SDK の既定の資格情報解決順に従う。
-
-1. 環境変数 (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`)
-2. 共有設定ファイル (`~/.aws/credentials`、`~/.aws/config`、`AWS_PROFILE`)
-3. Web Identity トークン (`AWS_WEB_IDENTITY_TOKEN_FILE` / `AWS_ROLE_ARN`) —
-   **EKS の IRSA / Pod Identity がこれ**
-4. インスタンスメタデータ (EC2 インスタンスプロファイル)
-
-リージョンは `AWS_REGION` または共有設定から解決される。**指定するフラグはない。**
-
-#### 必要な権限
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": "secretsmanager:GetSecretValue",
-      "Resource": "arn:aws:secretsmanager:<region>:<account>:secret:prod/dpf/token-*"
-    }
-  ]
-}
-```
-
-**シークレットがカスタマー管理の KMS キーで暗号化されている場合**、
-そのキーに対する `kms:Decrypt` も必要になる。
-
-```json
-{
-  "Effect": "Allow",
-  "Action": "kms:Decrypt",
-  "Resource": "arn:aws:kms:<region>:<account>:key/<key-id>"
-}
-```
-
-AWS 管理キー (`aws/secretsmanager`) を使う既定の構成では、この追加は要らない。
-
----
-
-### Azure Key Vault
-
-```
---dpf-token-secret-manager=azure \
---dpf-token-secret-endpoint=https://myvault.vault.azure.net/ \
---dpf-token-secret-id=dpf-token
-```
-
-| 事項 | 内容 |
-|---|---|
-| `--dpf-token-secret-id` | シークレットの**名前** |
-| 鍵の位置 | シークレットの**値全体**がトークン。JSON として解釈しない |
-| バージョン | 最新 |
-| `--dpf-token-secret-endpoint` | **Key Vault の URL。必須** |
-
-**4 サービスのうち Azure だけ接続先が必須である。** Key Vault の URL は
-環境から導けないため。省略すると起動に失敗する。
-
-```bash
-az keyvault secret set \
-  --vault-name myvault \
-  --name dpf-token \
-  --value '<DPF のアクセストークン>'
-```
-
-#### 認証
-
-`DefaultAzureCredential` の解決順に従う。
-
-1. 環境変数 (`AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` など)
-2. ワークロード ID (`AZURE_FEDERATED_TOKEN_FILE`) — **AKS のワークロード ID がこれ**
-3. マネージド ID
-4. Azure CLI / Azure Developer CLI / Azure PowerShell (開発時)
-
-#### 必要な権限
-
-RBAC で構成した Key Vault の場合、**Key Vault Secrets User** ロールを与える。
-
-```bash
-az role assignment create \
-  --role "Key Vault Secrets User" \
-  --assignee <principal-id> \
-  --scope <key-vault-resource-id>
-```
-
-アクセスポリシーで構成した Key Vault の場合、シークレットに対する `get` を与える。
-
-```bash
-az keyvault set-policy --name myvault \
-  --object-id <principal-id> --secret-permissions get
-```
-
----
-
-### Google Secret Manager
-
-```
---dpf-token-secret-manager=gcp \
---dpf-token-secret-endpoint=my-project \
---dpf-token-secret-id=dpf-api-token
-```
-
-| 事項 | 内容 |
-|---|---|
-| `--dpf-token-secret-id` | シークレット ID、または完全修飾リソース名 |
-| 鍵の位置 | ペイロードの**値全体**がトークン。JSON として解釈しない |
-| バージョン | `latest` |
-| `--dpf-token-secret-endpoint` | **プロジェクト ID。接続先 URL ではない** |
-
-**`--dpf-token-secret-endpoint` の意味が他のサービスと違う。**
-Azure では Key Vault の URL、Vault では接続先 URL だが、**GCP ではプロジェクト ID**
-として解釈される。
-
-`--dpf-token-secret-id` の書き方によって、プロジェクト ID が必要かどうかが変わる。
-
-| `--dpf-token-secret-id` に渡す値 | プロジェクト ID | 取得されるもの |
-|---|---|---|
-| `dpf-api-token` | **必須** | `projects/<project>/secrets/dpf-api-token/versions/latest` |
-| `projects/my-project/secrets/dpf-api-token` | 不要 | 同上の `versions/latest` |
-| `projects/my-project/secrets/dpf-api-token/versions/3` | 不要 | そのバージョン |
-
-3 行目のように完全修飾名で書けば、`--dpf-token-secret-endpoint` は要らず、
-**バージョンも固定できる**。
-
-```bash
-printf '%s' '<DPF のアクセストークン>' | \
-  gcloud secrets create dpf-api-token --data-file=-
-```
-
-`printf` を使うのは末尾に改行を入れないため。ただし取得側で前後の空白は
-取り除かれるので、改行が入っていても動く。
-
-#### 認証
-
-アプリケーションの既定資格情報 (ADC) の解決順に従う。
-
-1. `GOOGLE_APPLICATION_CREDENTIALS` が指すサービスアカウントキーのファイル
-2. `gcloud auth application-default login` の資格情報 (開発時)
-3. メタデータサーバ (GCE / GKE / Cloud Run) —
-   **GKE の Workload Identity がこれ**
-
-#### 必要な権限
-
-シークレットに対する `secretmanager.versions.access`。
-**Secret Manager のシークレット アクセサー** ロールが該当する。
-
-```bash
-gcloud secrets add-iam-policy-binding dpf-api-token \
-  --member='serviceAccount:<sa>@<project>.iam.gserviceaccount.com' \
-  --role='roles/secretmanager.secretAccessor'
-```
-
----
-
-### 供給元の比較
-
-| | `--dpf-token-secret-id` | 鍵の位置 | `--dpf-token-secret-endpoint` | 認証 |
-|---|---|---|---|---|
-| ファイル | — (パスは `--dpf-token-file`) | ファイルの内容全体 | — | 不要 |
-| Vault | マウント `secret` 配下のパス | **`token` フィールド** | 接続先 URL (任意) | `VAULT_TOKEN` |
-| AWS | シークレット名 または ARN | 値全体 | — (未使用) | SDK の既定解決 |
-| Azure | シークレット名 | 値全体 | **Key Vault の URL (必須)** | `DefaultAzureCredential` |
-| GCP | シークレット ID または リソース名 | 値全体 | **プロジェクト ID** | ADC |
-
-**Vault だけが値の中の特定のフィールド (`token`) を読む。** 他の 3 つは値全体を
-トークンとして扱う。JSON を格納しないこと。
+| 取得のタイミング | 起動時に 1 度 (設定の誤りを早く知らせるため)。以後は **DPF API を呼ぶたびに読み直す。キャッシュしない** |
+| ローテーション | ファイルの内容が差し替われば**再起動なしに**次の要求から反映される |
+| 値の整形 | 前後の空白を取り除く。末尾の改行は気にしなくてよい |
+| 空・空白のみ | 取得失敗として扱う。DPF へ要求を送らない |
+| 取得失敗の分類 | 起動時なら**起動失敗**。起動後なら**恒久的な失敗**で、ExternalDNS は再試行しない |
+| 失敗時のメッセージ | 「アクセストークンを取得できませんでした」の定型文に置き換える。**トークン値やファイル内容を含めない** |
 
 ---
 
@@ -683,7 +385,6 @@ ExternalDNS が Ingress や Service から算出するレコードに `NS` は�
 | 記述 | 突き合わせる相手 |
 |---|---|
 | [設定](#設定)の一覧 (名前と既定値) | `--help` が出力する項目 |
-| [対応するシークレット管理サービス](#対応するシークレット管理サービス)の値 | 実装が受理する値 |
 | [出力に現れる系列](#出力に現れる系列) | 宣言された計測器から導いた系列名 |
 | [`operation` の値](#ラベルの値) | DPF API 呼び出しの計測に渡される識別子 |
 | [レコード種別](#レコード種別と制約)の一覧 | 実装が対応と宣言する種別 |
@@ -697,24 +398,10 @@ ExternalDNS が Ingress や Service から算出するレコードに `NS` は�
 
 | 記述 | 検査できない理由 |
 |---|---|
-| **トークンが読まれる位置** (値全体か、特定のフィールドか) | 依存ライブラリの既定値であり、本サービスのコードには「オプションを渡していない」ことしか現れない |
-| 認証の解決順、参照される環境変数 | 各 SDK の内部仕様 |
-| 必要な権限 (IAM ポリシー、RBAC ロール等) | 外部サービスの仕様。こちらから確かめられない |
-| シークレットへのトークンの格納手順 | 同上 |
 | 設定項目・計測値・ラベル・経路の**意味の説明** | 散文 |
 | エラーの分類と外部 API の状態コードの対応 | 網羅的に列挙できない |
 | レコード種別ごとの制約の内容 | 実装側の検証テストが守っている。文書との文字列一致には意味がない |
 | 既知の制限の説明 | 散文 |
-
-> [!IMPORTANT]
-> **トークンが読まれる位置が検査対象外である点に注意してください。**
->
-> Vault がシークレット内の `token` フィールドを読むこと、AWS / Azure / GCP が
-> 値全体をトークンとして扱うことは、いずれも依存ライブラリの既定の振る舞いです。
-> ライブラリが既定を変えれば、この文書は黙って誤りになります。
->
-> 緩和として、依存ライブラリの版は固定されています。版が上がるときは
-> Pull Request として現れるため、その時点で確かめられます。
 
 「検査されているから正しい」と読まないでください。検査は上の表の範囲に限られます。
 
@@ -726,11 +413,6 @@ ExternalDNS が Ingress や Service から算出するレコードに `NS` は�
 |---|---|
 | **ログの OTLP 送出が未実装** | 憲章 (原則 V) が MUST としているが、実装されていない。`telemetry.New` はメトリクスとトレースのみを初期化する。`WithAdditionalSink` は用意されているが配線されていない。OTLP ログの exporter への依存もない |
 | ゾーンロックの取得・解放が個別に計測されていない | 専用の `operation` がなく、所要時間は `apply` に含まれる。ロックの競合はログから読む |
-| トークンのキャッシュ期間を指定できない | シークレット管理サービスを使う場合、DPF API の呼び出しごとにサービスへの問い合わせが発生する。ローテーションの即時反映を優先した結果である |
-| Vault のマウント・鍵名・KV バージョンを変更できない | `secret` / `token` / KV v2 に固定。`dpf-go` 側にはオプションがある |
-| Vault の認証はトークンのみ | AppRole や Kubernetes 認証のログイン処理を行わない。`VAULT_TOKEN` が必要 |
-| シークレットの値を JSON として解釈しない | AWS / Azure / GCP では値全体をトークンとして扱う。JSON から特定のキーを取り出す指定はできない |
-| AWS / Azure / GCP でシークレットのバージョンを固定できない | 常に最新を取得する。ただし GCP のみ、完全修飾リソース名でバージョンを指定できる |
 | 上流チャートで ServiceAccount トークンを無効化できない | Pod 全体に効くため、同居する ExternalDNS 本体が動かなくなる。[README](../README.md) 参照 |
 | NetworkPolicy は上流チャートに含まれない | 別途マニフェストとして適用する。[README](../README.md) 参照 |
 | ExternalDNS の待ち受け時間は既定では足りない | 適用が DPF の反映完了まで待つため。[README](../README.md) 参照 |
