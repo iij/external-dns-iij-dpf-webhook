@@ -4,9 +4,12 @@ package dpf
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/iij/dpf-go/utils"
@@ -162,4 +165,68 @@ func TestNewTokenProvider_KnownSecretManagersAreRoutable(t *testing.T) {
 			}
 		})
 	}
+}
+
+// 空白だけのトークンファイルは取得失敗として扱う (spec 007 data-model「トークンファイル」)。
+//
+// 空の判定は dpf-go が行う (空のトークンを ErrTokenRequired とする)。本サービスは
+// 判定を足さないため、その振る舞いをここで固定する。dpf-go の NewClient は設定の誤りを
+// 早期に知らせるため構築時に 1 度トークンを取得する。したがって、起動時に空なら
+// 起動に失敗し、起動後に空になれば要求ごとに失敗する。
+func TestNewClient_BlankTokenFileIsPermanent(t *testing.T) {
+	t.Parallel()
+
+	t.Run("起動時に空", func(t *testing.T) {
+		t.Parallel()
+
+		path := writeToken(t, t.TempDir(), "  \n")
+
+		_, err := NewClient(t.Context(), config.DPF{TokenFile: path}, nil, nil)
+		if err == nil {
+			t.Fatal("空白だけのトークンファイルでクライアントを作れてしまった")
+		}
+		classified := Classify(err)
+		if !errors.Is(classified, provider.ErrPermanent) {
+			t.Errorf("空のトークンが恒久的な失敗に分類されていない: %v", classified)
+		}
+		if strings.Contains(classified.Error(), path) {
+			t.Errorf("分類後のエラーにファイルパスが残っている: %v", classified)
+		}
+	})
+
+	t.Run("起動後に空", func(t *testing.T) {
+		t.Parallel()
+
+		var requests atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			requests.Add(1)
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		t.Cleanup(srv.Close)
+
+		dir := t.TempDir()
+		path := writeToken(t, dir, "valid-token")
+
+		c, err := NewClient(t.Context(), config.DPF{TokenFile: path, Endpoint: srv.URL}, nil, nil)
+		if err != nil {
+			t.Fatalf("NewClient = error %v", err)
+		}
+
+		writeToken(t, dir, "  \n")
+
+		_, err = c.ListZones(t.Context())
+		if err == nil {
+			t.Fatal("空白だけのトークンファイルで DPF への呼び出しが成功した")
+		}
+		classified := Classify(err)
+		if !errors.Is(classified, provider.ErrPermanent) {
+			t.Errorf("空のトークンが恒久的な失敗に分類されていない: %v", classified)
+		}
+		if strings.Contains(classified.Error(), path) {
+			t.Errorf("分類後のエラーにファイルパスが残っている: %v", classified)
+		}
+		if n := requests.Load(); n != 0 {
+			t.Errorf("DPF へ %d 件の要求が送られた。トークンがないまま送ってはならない", n)
+		}
+	})
 }

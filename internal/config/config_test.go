@@ -30,6 +30,9 @@ func baseArgs(t *testing.T) []string {
 }
 
 // FR-017: 必須設定が欠けた状態で起動してはならない。
+//
+// 供給元はファイルだけである (spec 007 FR-003 / constitution v3.0.0)。
+// メッセージは指定すべきフラグを示し、廃止した経路を案内しない。
 func TestLoad_RequiresTokenSource(t *testing.T) {
 	t.Parallel()
 
@@ -39,6 +42,61 @@ func TestLoad_RequiresTokenSource(t *testing.T) {
 	}
 	if !errors.Is(err, config.ErrMissingRequired) {
 		t.Errorf("err = %v, want ErrMissingRequired", err)
+	}
+	if !strings.Contains(err.Error(), "--dpf-token-file") {
+		t.Errorf("エラーが --dpf-token-file を示していない: %v", err)
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "secret") {
+		t.Errorf("エラーが廃止したシークレット管理サービスの経路を案内している: %v", err)
+	}
+}
+
+// spec 007 FR-004 / constitution v3.0.0: シークレット管理サービス用のフラグは
+// 廃止した。ファイルと併せて指定されても黙って無視せず、起動を中止する。
+// どのフラグが受け付けられなかったかをメッセージで示す。
+func TestLoad_RejectsRemovedSecretManagerFlags(t *testing.T) {
+	t.Parallel()
+
+	for _, arg := range []string{
+		"--dpf-token-secret-manager=aws",
+		"--dpf-token-secret-id=x",
+		"--dpf-token-secret-endpoint=https://example.invalid/",
+	} {
+		name := strings.TrimPrefix(strings.SplitN(arg, "=", 2)[0], "--")
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := config.Load(append(baseArgs(t), arg))
+			if err == nil {
+				t.Fatalf("%s が受け付けられた。廃止したフラグは起動を中止させねばならない", arg)
+			}
+			if !errors.Is(err, config.ErrInvalid) {
+				t.Errorf("err = %v, want ErrInvalid", err)
+			}
+			if !strings.Contains(err.Error(), name) {
+				t.Errorf("エラーに受け付けなかったフラグ名 %q が含まれない: %v", name, err)
+			}
+		})
+	}
+}
+
+// spec 007 FR-004: ファイルを指定せず、廃止したフラグだけで起動しようとしても
+// 受け付けない。供給元の不足ではなく、廃止したフラグとして報告する。
+func TestLoad_RejectsRemovedFlagsWithoutTokenFile(t *testing.T) {
+	t.Parallel()
+
+	_, err := config.Load([]string{
+		"--dpf-token-secret-manager=aws",
+		"--dpf-token-secret-id=x",
+	})
+	if err == nil {
+		t.Fatal("廃止したフラグだけで Load が成功した")
+	}
+	if !errors.Is(err, config.ErrInvalid) {
+		t.Errorf("err = %v, want ErrInvalid", err)
+	}
+	if !strings.Contains(err.Error(), "dpf-token-secret-manager") {
+		t.Errorf("エラーに受け付けなかったフラグ名が含まれない: %v", err)
 	}
 }
 
@@ -257,7 +315,6 @@ func TestUsage_ListsKeySettings(t *testing.T) {
 	for _, want := range []string{
 		"-domain-filter",
 		"-dpf-token-file",
-		"-dpf-token-secret-manager",
 		"-provider-addr",
 		"-exposed-addr",
 		"-otlp-endpoint",
@@ -278,6 +335,17 @@ func TestUsage_HasNoInlineTokenOption(t *testing.T) {
 		if strings.Contains(usage, forbidden) {
 			t.Errorf("使い方に %q が現れた。トークンを引数で渡す経路は作らない", forbidden)
 		}
+	}
+}
+
+// 使い方にシークレット管理サービスの項目や案内が現れない
+// (spec 007 SC-001 / constitution v3.0.0)。
+func TestUsage_HasNoSecretManagerOption(t *testing.T) {
+	t.Parallel()
+
+	usage := config.Usage()
+	if strings.Contains(strings.ToLower(usage), "secret") {
+		t.Errorf("使い方にシークレット管理サービスの項目が現れた:\n%s", usage)
 	}
 }
 
