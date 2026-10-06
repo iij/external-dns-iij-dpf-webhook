@@ -14,7 +14,7 @@ Technical Context に NEEDS CLARIFICATION は残っていない。以下は、�
 | `internal/dpf/client.go` | `UsesSecretManager()` のときだけ `utils.WithTokenTTL(secretManagerTokenTTL)` (30 秒) を付ける |
 | テスト | `config_test.go` に 4 件、`token_test.go` に 2 件、`test/docs/reference_test.go` の `TestReference_SecretManagers`、`TestUsage_ListsKeySettings` の期待値 1 つ |
 | 文書 | README「アクセストークンの与え方」、`docs/reference.md` の設定表・検証の規則・供給元の節 (Vault / AWS / Azure / GCP / 比較)・検査対象の表・既知の制限 4 行 |
-| `go.mod` | 直接依存 9 件 (SDK 5 + `dpf-go/misc/*` 4) |
+| `go.mod` | 直接依存 10 件 (SDK 6 + `dpf-go/misc/*` 4) |
 
 e2e (`.github/workflows/e2e*.yml`、`test/`) はトークンをファイルでのみ与えており、
 シークレット管理サービスを使っていない。
@@ -88,7 +88,7 @@ e2e (`.github/workflows/e2e*.yml`、`test/`) はトークンをファイルで�
 ## R5: 依存の除去と、再び入り込まないことの保証
 
 **Decision**:
-1. import を消したうえで `go mod tidy` を行い、直接依存 9 件を `go.mod` から外す
+1. import を消したうえで `go mod tidy` を行い、直接依存 10 件を `go.mod` から外す
 2. `golangci-lint` の **`depguard`** を有効にし、次の import を禁止する
    - `github.com/hashicorp/vault`
    - `github.com/aws/aws-sdk-go-v2`

@@ -24,7 +24,7 @@ DPF のアクセストークンを、外部のシークレット管理サービ�
 **Language/Version**: Go 1.27 (変更なし)
 
 **Primary Dependencies**: `github.com/iij/dpf-go` v0.6.0 の `utils.TokenFromFile`
-(既に使用中)。**直接依存を 9 件削除する**: `github.com/hashicorp/vault/api`、
+(既に使用中)。**直接依存を 10 件削除する**: `github.com/hashicorp/vault/api`、
 `github.com/aws/aws-sdk-go-v2/{config,service/secretsmanager}`、
 `github.com/Azure/azure-sdk-for-go/sdk/{azidentity,security/keyvault/azsecrets}`、
 `cloud.google.com/go/secretmanager`、`github.com/iij/dpf-go/misc/{vault,aws,azure,gcp}`。
@@ -126,7 +126,7 @@ test/docs/
 └── extract.go             # 該当コメントを削除
 
 .golangci.yml              # depguard を有効化し SDK の import を禁止
-go.mod / go.sum            # go mod tidy で直接依存 9 件を削除
+go.mod / go.sum            # go mod tidy で直接依存 10 件を削除
 
 README.md                  # 「アクセストークンの与え方」を改訂、外部サービス利用時の案内と subPath の注意を追加
 docs/reference.md          # 設定表・検証規則・供給元の節・一致検査の表・既知の制限を改訂
