@@ -5,7 +5,7 @@
 書式は [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、
 バージョン番号は [Semantic Versioning](https://semver.org/lang/ja/) に従います。
 
-## [Unreleased]
+## [0.1.0] - 2026-10-06
 
 初回リリースです。
 
@@ -42,4 +42,4 @@
 - OTLP の送出は、`--otlp-endpoint` を指定した場合にのみ有効になります。
   送出先の TLS 証明書は既定で検証します。
 
-[Unreleased]: https://github.com/iij/external-dns-iij-dpf-webhook/commits/main
+[0.1.0]: https://github.com/iij/external-dns-iij-dpf-webhook/releases/tag/v0.1.0
