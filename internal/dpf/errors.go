@@ -147,6 +147,13 @@ func Classify(err error) error {
 		return fmt.Errorf("%w: ゾーンが他の操作でロックされています: %w", provider.ErrTemporary, err)
 	}
 
+	// ゾーンのラベルが上限に達していて、ロックのためのラベルを置けない。
+	// ロックはゾーンのラベルを 1 つ使うため、運用者がゾーンへ付けたラベルを
+	// 減らさない限り解消しない。dpf-go も待たずに返す。
+	if errors.Is(err, utils.ErrLabelLimit) {
+		return fmt.Errorf("%w: ゾーンのラベル数が上限に達しており、ゾーンロックを取得できません: %w", provider.ErrPermanent, err)
+	}
+
 	// 保持していたロックを他者に奪われた場合も一時的である。適用は反映まで
 	// 進んでいないため (dpf-go が編集の context を打ち切る)、やり直せばよい。
 	if errors.Is(err, utils.ErrNotLockHolder) {

@@ -65,6 +65,7 @@ func TestClassify_Permanent(t *testing.T) {
 		{"権限不足", httpStatusError(http.StatusForbidden)},
 		{"対象なし", httpStatusError(http.StatusNotFound)},
 		{"ゾーン解決不能", utils.ErrZoneNotFound},
+		{"ゾーンのラベル数の上限", utils.ErrLabelLimit},
 	}
 
 	for _, c := range cases {
