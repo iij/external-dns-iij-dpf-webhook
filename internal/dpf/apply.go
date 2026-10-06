@@ -31,6 +31,10 @@ const applyTimeout = 10 * time.Minute
 //  5. 一括更新とゾーン反映 (原子的に実行)
 //  6. 反映完了の待ち合わせ
 //
+// 投入集合が反映済みの内容と同じであれば、5 と 6 を省く ([unchanged])。
+// 同じ内容を反映してもゾーンのシリアルと反映の履歴が進むだけであり、
+// 未反映の編集を無用に破棄する (README PC-004)。省いた場合も成功を返す。
+//
 // **1・2・5・6 は [utils.ZoneApplier] が担う。** 本サービスが書くのは 3 と 4、
 // すなわち「どのレコードを投入するか」だけである。ロックの取得と解放、保持中の
 // 延長、SOA と apex NS を取り込まない指定は、いずれも間違えてもその場では
@@ -86,6 +90,12 @@ func (c *Client) Apply(ctx context.Context, zone provider.Zone, cs provider.Chan
 			}
 
 			summary = setSummary(set)
+
+			// **ガードの後に置く。** 送らない場合でも、送ろうとした集合が
+			// 正しいことは確かめておく。マージの誤りを見逃さないため。
+			if unchanged(current, set) {
+				return nil, utils.ErrSkipApply
+			}
 			return set, nil
 		}
 

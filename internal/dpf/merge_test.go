@@ -447,3 +447,132 @@ func TestMerge_DoesNotWriteAttributionIntoRecordComments(t *testing.T) {
 		}
 	}
 }
+
+// marked は本 provider の印だけを持つ反映済みレコードを組み立てる。
+//
+// 前回の適用で本 provider が書いたレコードはこの形で返る。
+func marked(name string, rrtype dpfapi.RecordsRrtype, ttl int32, values ...string) dpfapi.OverwriteRecordsInner {
+	r := cur(name, rrtype, ttl, values...)
+	r.Labels = map[string]string{managedByLabelKey: applyAttribution}
+	return r
+}
+
+// submitted は Apply の編集関数と同じ手順で投入集合を組み立てる。
+func submitted(t *testing.T, current []dpfapi.OverwriteRecordsInner, cs provider.ChangeSet) []dpfapi.OverwriteRecordsInner {
+	t.Helper()
+	set, err := merge(current, cs)
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	applyManagedBy(set, cs)
+	return set
+}
+
+// 反映済みの内容と同じ集合になる変更セットは、反映を省く。
+//
+// ExternalDNS が値の変わらない更新を送ってきた場合や、反映済みの適用が
+// 再送された場合に当たる。
+func TestUnchanged_SkipsWhenSetEqualsCurrent(t *testing.T) {
+	t.Parallel()
+
+	current := []dpfapi.OverwriteRecordsInner{
+		curNullTTL("example.jp.", dpfapi.RECORDSRRTYPE_SOA, "ns1.example.jp. root.example.jp. 1 2 3 4 5"),
+		marked("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1"),
+		cur("manual.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.9"),
+	}
+
+	cases := []struct {
+		name string
+		cs   provider.ChangeSet
+	}{
+		{"同じ値への更新", provider.ChangeSet{
+			UpdateTo: []provider.Record{pr("www.example.jp", provider.TypeA, 300, "192.0.2.1")},
+		}},
+		{"既に作成済みのレコードの作成", provider.ChangeSet{
+			Create: []provider.Record{pr("www.example.jp", provider.TypeA, 300, "192.0.2.1")},
+		}},
+		{"存在しないレコードの削除", provider.ChangeSet{
+			Delete: []provider.Record{pr("gone.example.jp", provider.TypeA, 300, "192.0.2.2")},
+		}},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			if !unchanged(current, submitted(t, current, c.cs)) {
+				t.Error("反映済みと同じ集合なのに、反映を省かない")
+			}
+		})
+	}
+}
+
+// 1 か所でも違えば反映する。
+//
+// 必要な反映を省くと DNS が更新されない。余計な反映より害が大きい。
+func TestUnchanged_AppliesWhenAnythingDiffers(t *testing.T) {
+	t.Parallel()
+
+	current := []dpfapi.OverwriteRecordsInner{
+		marked("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1"),
+		cur("legacy.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.5"),
+	}
+
+	cases := []struct {
+		name string
+		cs   provider.ChangeSet
+	}{
+		{"値の変更", provider.ChangeSet{
+			UpdateTo: []provider.Record{pr("www.example.jp", provider.TypeA, 300, "192.0.2.2")},
+		}},
+		{"値の追加", provider.ChangeSet{
+			UpdateTo: []provider.Record{pr("www.example.jp", provider.TypeA, 300, "192.0.2.1", "192.0.2.2")},
+		}},
+		{"TTL の変更", provider.ChangeSet{
+			UpdateTo: []provider.Record{pr("www.example.jp", provider.TypeA, 600, "192.0.2.1")},
+		}},
+		{"TTL を未指定へ", provider.ChangeSet{
+			UpdateTo: []provider.Record{pr("www.example.jp", provider.TypeA, 0, "192.0.2.1")},
+		}},
+		{"作成", provider.ChangeSet{
+			Create: []provider.Record{pr("new.example.jp", provider.TypeA, 300, "192.0.2.3")},
+		}},
+		{"削除", provider.ChangeSet{
+			Delete: []provider.Record{pr("www.example.jp", provider.TypeA, 300, "192.0.2.1")},
+		}},
+		// 値が同じでも、印の無いレコードには印を付ける必要がある。
+		{"印の付与", provider.ChangeSet{
+			UpdateTo: []provider.Record{pr("legacy.example.jp", provider.TypeA, 300, "192.0.2.5")},
+		}},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			if unchanged(current, submitted(t, current, c.cs)) {
+				t.Error("内容が変わるのに、反映を省いた")
+			}
+		})
+	}
+}
+
+// ラベルの nil と空のマップは同じとみなす。
+//
+// merge は送るために nil を空のマップへ置き換える。これを違いとみなすと、
+// ラベルを持たないレコードがあるゾーンでは反映を一度も省けない。
+func TestUnchanged_TreatsNilLabelsAsEmpty(t *testing.T) {
+	t.Parallel()
+
+	bare := cur("manual.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.9")
+	bare.Labels = nil
+	current := []dpfapi.OverwriteRecordsInner{
+		bare,
+		marked("www.example.jp.", dpfapi.RECORDSRRTYPE_A, 300, "192.0.2.1"),
+	}
+
+	cs := provider.ChangeSet{
+		UpdateTo: []provider.Record{pr("www.example.jp", provider.TypeA, 300, "192.0.2.1")},
+	}
+	if !unchanged(current, submitted(t, current, cs)) {
+		t.Error("ラベルの nil と空のマップを違いとみなした")
+	}
+}
