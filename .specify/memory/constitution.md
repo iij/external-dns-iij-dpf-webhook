@@ -3,16 +3,18 @@ Sync Impact Report
 - Version change: 3.1.0 → 4.0.0
 - Bump rationale: 推奨 values と NetworkPolicy の例に課していた要件のうち、
   上流チャートのサイドカー構成では満たせないものを削除・再定義した。
-  本サービスは ExternalDNS 本体と Pod を共有し、ServiceAccount トークンの
-  マウントと egress はいずれも Pod 単位で効く。本体は Kubernetes API への接続と
-  トークンを要するため、本サービスの都合で塞ぐことができない。満たせない MUST を
-  残すと、README が常にそれからの逸脱を説明し続けることになる。
+  本サービスは ExternalDNS 本体と Pod を共有する。ServiceAccount は Pod 単位で
+  払い出されるものであり、本サービスのスコープ外である。egress も Pod 単位で効き、
+  本体は Kubernetes API への接続を要するため、本サービスの都合で塞ぐことが
+  できない。満たせない MUST を残すと、README が常にそれからの逸脱を説明し続ける
+  ことになる。
   MUST の削除と再定義にあたるため MAJOR。
 - Modified principles: なし
 - Modified sections:
   - 技術・配布制約 > セキュリティ: コンテナイメージとチャートの既定拒否:
-    - `automountServiceAccountToken: false` を既定とする要件を削除。本サービスが
-      トークンを使わないこと、本サービスのための RBAC を追加しないことに再定義
+    - `automountServiceAccountToken: false` を既定とする要件と、Role/ClusterRole を
+      作成しない要件を削除。ServiceAccount は Pod 単位で払い出され、本サービスの
+      スコープ外であるため、代わりの要件も置かない
     - NetworkPolicy の要件を ingress に限定。egress の全拒否起点、DPF API と
       名前解決への限定、OTLP 送出先・シークレット管理サービスへの egress の規定を削除
     - exposed ポートへの ingress を、スクレイプ元に限定する例を示す要件に再定義
@@ -816,9 +818,6 @@ Kubernetes には、外部のシークレット管理サービスの値を Pod �
   `capabilities.drop: ["ALL"]`, `seccompProfile.type: RuntimeDefault` を既定とすること (MUST)。
 - `privileged`, `hostNetwork`, `hostPID`, `hostIPC`, hostPath ボリュームを既定で有効に
   しないこと (MUST NOT)。Pod Security Standards の `restricted` プロファイルを満たすこと (MUST)。
-- 本サービスは Kubernetes API を利用しないこと (MUST NOT)。ServiceAccount トークンが
-  マウントされていても使わない。本サービスのための Role/ClusterRole を追加しないこと
-  (MUST NOT)。
 - README は、exposed ポート (既定 `8080`) への ingress を `/metrics` のスクレイプ元に
   限定する NetworkPolicy の例を示すこと (MUST)。全ての送信元に開放する例を示さないこと
   (MUST NOT)。
@@ -833,13 +832,14 @@ Kubernetes には、外部のシークレット管理サービスの値を Pod �
 - 上記のいずれかを緩和する設定は、推奨 values では安全側に置き、必要な利用者が
   自ら上書きする形とすること (MUST)。
 
-**ServiceAccount トークンと egress を要件から外した根拠**: 本サービスは上流チャートの
-サイドカーとして ExternalDNS 本体と Pod を共有する。`automountServiceAccountToken` と
-NetworkPolicy の egress は、いずれも**コンテナ単位ではなく Pod 単位**で効く。本体は
-Ingress や Service を監視するために Kubernetes API への接続とトークンを要するため、
-本サービスの都合でこれらを塞ぐと本体が動かなくなる。Kubernetes API の宛先は環境ごとに
-異なり、egress の例を示しても実質的に絞れない。満たせない MUST を残すと、README が
-常にそれからの逸脱を説明し続け、規範が形骸化する。
+**ServiceAccount と egress を要件から外した根拠**: 本サービスは上流チャートの
+サイドカーとして ExternalDNS 本体と Pod を共有する。**ServiceAccount とそのトークン、
+RBAC は Pod 単位で払い出されるものであり、本サービスのスコープ外である。** 何を
+許可するかは ExternalDNS 本体の要件とチャートが決める。NetworkPolicy の egress も
+コンテナ単位ではなく Pod 単位で効き、本体は Kubernetes API への接続を要する。
+その宛先は環境ごとに異なり、egress の例を示しても実質的に絞れない。満たせない、
+あるいは本サービスが決める立場にない MUST を残すと、README が常にそれからの逸脱を
+説明し続け、規範が形骸化する。
 
 一方 ingress は、`/metrics` が無認証で公開されるため、送信元を絞る意味がある。
 probe は kubelet (ノード) から届き、多くの CNI ではノードからの通信が NetworkPolicy の
