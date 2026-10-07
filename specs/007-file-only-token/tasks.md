@@ -119,7 +119,7 @@ Phase 4 (US2) は、削除で得た拒否を利用者の目に届く形 (バイ�
 - [X] T025 `go-licenses` で依存ライセンスを実測し (`make license-deps` が使う方法と同じ)、ライセンス別の件数を得る。`.specify/memory/constitution.md` の「依存ライセンスの実測」の段落を新しい日付と件数に更新し、MPL-2.0 の件数と由来の記述を実測に合わせる (0 件なら「MPL-2.0 の依存はない」とし、許容リストの MPL-2.0 の行は残す)。v3.0.0 の Sync Impact Report を更新する。Modified sections の「ライセンス」を「実測値を更新」に改め、Follow-up の「依存ライセンスの実測を 007 の実装後に更新する」を削除する。バージョンは v3.0.0 のまま据え置く (未マージのため)。**ただし T025 の時点で v3.0.0 が既に `main` にマージされていた場合は、v3.0.1 (PATCH) として改訂し、Sync Impact Report を先頭に足して `**Version**` と `**Last Amended**` を更新する**
 - [X] T026 コンテナイメージをビルドし (`make` の該当ターゲット、または CI の `ci.yml` と同じ手順)、`/licenses/third-party/` に HashiCorp・AWS・Azure・Google Cloud のディレクトリが無いことを確認する
 - [X] T027 grep で残骸を確認する: `grep -rn -i -E 'secret.?manager|SecretID|SecretEndpoint|vault|azsecrets|secretsmanager' --include='*.go' .` が 0 件 (`.golangci.yml` の deny リストと `specs/` は除く)。残っていれば削除する
-- [ ] T028 PR を作成する。本文に、constitution v3.0.0 に基づく変更であること、廃止したフラグ、移行先 (README の新設節)、依存モジュール数の変化 (T016 の記録)、T018 の確認結果、未リリースのため移行期間を設けないことを記す。constitution の改訂を含むため、Governance に従い既存コード・spec への影響 (001 の FR-035/036 の廃止) を記す。PR の CI で `e2e` (トークンのローテーションを含む)、`scale`、`e2e-sidecar` が成功することを確認する (SC-005、constitution「実環境での検証」)
+- [X] T028 PR を作成する。本文に、constitution v3.0.0 に基づく変更であること、廃止したフラグ、移行先 (README の新設節)、依存モジュール数の変化 (T016 の記録)、T018 の確認結果、未リリースのため移行期間を設けないことを記す。constitution の改訂を含むため、Governance に従い既存コード・spec への影響 (001 の FR-035/036 の廃止) を記す。PR の CI で `e2e` (トークンのローテーションを含む)、`scale`、`e2e-sidecar` が成功することを確認する (SC-005、constitution「実環境での検証」)
 
 ---
 
