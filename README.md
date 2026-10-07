@@ -17,6 +17,7 @@ DPF に反映します。
 | 項目 | 内容 |
 |---|---|
 | ExternalDNS | **v0.22.0 以降** |
+| 上流の external-dns Helm チャート | **1.22.0 以降** (appVersion 0.22.0 以降) |
 | webhook provider API | メディアタイプ `application/external.dns.webhook+json;version=1` |
 | 配布形態 | **コンテナイメージのみ** (バイナリ単体の配布はありません) |
 
@@ -189,11 +190,10 @@ kubectl create secret generic dpf-token \
 ```yaml
 # values.yaml
 
-# ExternalDNS 本体のバージョン。**省略しないでください。**
-# チャートの appVersion は本 provider の前提 (v0.22.0 以降) より古い場合が
-# あり、省くとそれが使われます。
-image:
-  tag: v0.22.0
+# レコードの同期方法。チャート 1.22.0 以降は**指定が必須**です。
+# upsert-only は作成と更新だけを行い、削除しません。Ingress を消したときに
+# レコードも消したい場合は sync にしてください。
+policy: upsert-only
 
 provider:
   name: webhook
@@ -238,27 +238,6 @@ extraArgs:
   - --webhook-provider-write-timeout=605s
 ```
 
-### ⚠ ServiceAccount トークンは無効化できません
-
-`automountServiceAccountToken: false` を**指定しないでください**。
-
-本 provider は Kubernetes API を使わないため、単体で見ればトークンは不要です。
-しかしこの値はチャートのテンプレートで **Pod 全体**に適用され、同じ Pod 内の
-ExternalDNS 本体からもトークンを取り上げます。ExternalDNS は Ingress や
-Service を監視するために API サーバへの認証が必要で、トークンがないと
-起動しても何も検出しません。
-
-チャートには、サイドカーだけトークンを渡さない指定がありません
-(`serviceAccount.automountServiceAccountToken` も同じく Pod 全体に効きます)。
-本 provider のコンテナにも読み取り専用でマウントされます。
-
-緩和は次の 2 つです。
-
-- ExternalDNS が使う ServiceAccount の RBAC を、必要な読み取りだけに絞る
-  (チャートの既定がそうなっています)
-- 後述の NetworkPolicy で egress を DPF API に限る。トークンがあっても
-  API サーバへ到達できなければ使えません
-
 ### ⚠ 待ち受け時間は既定では足りません
 
 ExternalDNS v0.22.0 の既定値は、本 provider の応答時間に対して余裕がありません。
@@ -297,6 +276,11 @@ helm upgrade --install external-dns external-dns/external-dns \
   --values values.yaml
 ```
 
+**チャートは 1.22.0 以降を使ってください。** ExternalDNS 本体のバージョンは
+チャートの appVersion に従います。1.21.x 以前の appVersion は本 provider の前提
+(v0.22.0 以降) より古いため動きません。values で `image.tag` を固定しないのは、
+チャートを更新したときに本体も追随させるためです。
+
 ### ポートについて
 
 チャートと本 provider の既定値は噛み合うようにできています。**変更しないでください。**
@@ -313,59 +297,48 @@ helm upgrade --install external-dns external-dns/external-dns \
 ### ⚠ NetworkPolicy はチャートに含まれません
 
 チャートには NetworkPolicy のテンプレートがなく、**別途マニフェストを適用する必要が
-あります**。以下は egress を全拒否から始める例です。DPF API のエンドポイントと
-名前解決だけを許可します。
+あります**。`/metrics` は認証なしで公開されるため、以下は ingress を
+スクレイプ元だけに絞る例です。
 
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: external-dns-egress
+  name: external-dns-ingress
   namespace: external-dns
 spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/name: external-dns
-  policyTypes: [Egress, Ingress]
-
-  egress:
-    # 名前解決
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
-      ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
-    # DPF API と Kubernetes API。宛先は環境に合わせて絞ってください。
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-      ports:
-        - protocol: TCP
-          port: 443
+  policyTypes: [Ingress]
 
   ingress:
-    # probe とスクレイプに必要な送信元のみ。全開放しないでください。
+    # /metrics のスクレイプ元 (Prometheus) のみ。名前空間は環境に合わせてください。
     - from:
-        - namespaceSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
       ports:
         - protocol: TCP
-          port: 8080
+          port: 8080   # 本 provider の healthz と metrics
+        - protocol: TCP
+          port: 7979   # ExternalDNS 本体の metrics (スクレイプしないなら削除)
 ```
+
+- **probe は kubelet (ノード) から届きます。** 多くの CNI ではノードからの通信は
+  NetworkPolicy の対象外ですが、お使いの CNI で probe が失敗する場合は、ノードの
+  アドレス範囲を `from` に加えてください
+- webhook の provider API (`localhost:8888`) は Pod 内のループバックで完結するため、
+  NetworkPolicy の影響を受けません
+- **egress の例は示しません。** egress は Pod 全体に効き、同居する ExternalDNS 本体が
+  Kubernetes API に接続する必要があります。その宛先は環境ごとに異なり、例として
+  示しても実質的に絞れないためです。egress を制限する場合は、Kubernetes API、
+  DPF API、名前解決 (と、使う場合は OTLP の送出先) を許可してください
 
 > [!NOTE]
 > `/healthz` と `/metrics` は同一ポートで提供されるため、**NetworkPolicy で
 > 区別できません**。probe を通す設定は、同時に `/metrics` を同じ送信元へ
 > 露出させます。メトリクスにゾーン名やレコード値を載せていないのはこのためです。
-
-OTLP を使う場合は、送出先への egress を上記に追加してください。使わない構成では
-穴を開けないでください。
 
 ---
 
@@ -408,7 +381,7 @@ Secret を更新してから Pod 内のファイルに届くまでには、Kuber
   本 provider はファイルの内容が変われば次の要求から使います
 - `subPath` でマウントしないでください (上記)
 - その仕組みが外部サービスへ接続するための egress は、**その仕組みの側の設定**です。
-  本 provider の NetworkPolicy に穴を開ける必要はありません
+  本 provider 側で必要な設定はありません
 
 ### 環境変数と引数からは受け取りません
 

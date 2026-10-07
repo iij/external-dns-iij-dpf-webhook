@@ -65,7 +65,12 @@ constitution が定めています。
   再試行させ、恒久的なら `4xx` を返して再試行させない。**判断がつかないものは
   一時的に倒す**
 - 配布はコンテナイメージで行う。ベースイメージは `scratch`。依存のライセンス本文を
-  `/licenses/` に同梱し、SBOM と provenance を紐づける。上流の external-dns チャートへ
-  サイドカーとして与える推奨 values を README に示す
+  `/licenses/` に同梱し、SBOM と provenance を紐づける
+- 上流の external-dns チャート (**1.22.0 以降**) へサイドカーとして与える推奨 values を
+  README に示す。ExternalDNS 本体のバージョンはチャートの appVersion に従い、
+  `image.tag` では固定しない。同期方法は `policy: upsert-only` (削除しない) とし、
+  削除まで同期させる場合は `sync` にする
+- `/metrics` のスクレイプ元だけに ingress を絞る NetworkPolicy の例を README に示す。
+  egress は同居する ExternalDNS 本体が Kubernetes API に接続するため、例を示さない
 
 [Unreleased]: https://github.com/iij/external-dns-iij-dpf-webhook/commits/main

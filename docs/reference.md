@@ -413,6 +413,5 @@ ExternalDNS が Ingress や Service から算出するレコードに `NS` は�
 |---|---|
 | **ログの OTLP 送出が未実装** | 憲章 (原則 V) が MUST としているが、実装されていない。`telemetry.New` はメトリクスとトレースのみを初期化する。`WithAdditionalSink` は用意されているが配線されていない。OTLP ログの exporter への依存もない |
 | ゾーンロックの取得・解放が個別に計測されていない | 専用の `operation` がなく、所要時間は `apply` に含まれる。ロックの競合はログから読む |
-| 上流チャートで ServiceAccount トークンを無効化できない | Pod 全体に効くため、同居する ExternalDNS 本体が動かなくなる。[README](../README.md) 参照 |
 | NetworkPolicy は上流チャートに含まれない | 別途マニフェストとして適用する。[README](../README.md) 参照 |
 | ExternalDNS の待ち受け時間は既定では足りない | 適用が DPF の反映完了まで待つため。[README](../README.md) 参照 |
