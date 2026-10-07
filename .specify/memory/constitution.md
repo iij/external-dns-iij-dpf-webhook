@@ -1,5 +1,28 @@
 <!--
 Sync Impact Report
+- Version change: 3.1.0 → 4.0.0
+- Bump rationale: 推奨 values と NetworkPolicy の例に課していた要件のうち、
+  上流チャートのサイドカー構成では満たせないものを削除・再定義した。
+  本サービスは ExternalDNS 本体と Pod を共有する。ServiceAccount は Pod 単位で
+  払い出されるものであり、本サービスのスコープ外である。egress も Pod 単位で効き、
+  本体は Kubernetes API への接続を要するため、本サービスの都合で塞ぐことが
+  できない。満たせない MUST を残すと、README が常にそれからの逸脱を説明し続ける
+  ことになる。
+  MUST の削除と再定義にあたるため MAJOR。
+- Modified principles: なし
+- Modified sections:
+  - 技術・配布制約 > セキュリティ: コンテナイメージとチャートの既定拒否:
+    - `automountServiceAccountToken: false` を既定とする要件と、Role/ClusterRole を
+      作成しない要件を削除。ServiceAccount は Pod 単位で払い出され、本サービスの
+      スコープ外であるため、代わりの要件も置かない
+    - NetworkPolicy の要件を ingress に限定。egress の全拒否起点、DPF API と
+      名前解決への限定、OTLP 送出先・シークレット管理サービスへの egress の規定を削除
+    - exposed ポートへの ingress を、スクレイプ元に限定する例を示す要件に再定義
+- Added sections: なし
+- Removed sections: なし
+- Deferred TODOs: なし
+
+Sync Impact Report (v3.1.0)
 - Version change: 3.0.0 → 3.1.0
 - Bump rationale: 利用者に見える変更を `CHANGELOG.md` に記録することを MUST とした。
   変更のたびに同じ変更のなかで `Unreleased` へ書き、リリースのときにバージョンと
@@ -795,15 +818,9 @@ Kubernetes には、外部のシークレット管理サービスの値を Pod �
   `capabilities.drop: ["ALL"]`, `seccompProfile.type: RuntimeDefault` を既定とすること (MUST)。
 - `privileged`, `hostNetwork`, `hostPID`, `hostIPC`, hostPath ボリュームを既定で有効に
   しないこと (MUST NOT)。Pod Security Standards の `restricted` プロファイルを満たすこと (MUST)。
-- 本サービスは Kubernetes API を利用しない。`automountServiceAccountToken: false` を既定とし、
-  Role/ClusterRole を既定で作成しないこと (MUST)。
-- NetworkPolicy を既定で有効とし、ingress・egress ともに全拒否を起点に、必要な通信のみを
-  明示的に許可すること (MUST)。既定で許可する egress は DPF API エンドポイントと
-  名前解決に限ること (MUST)。
-- OTLP 送出先への egress は、送出先が設定された場合にのみ許可すること (MUST)。
-  OTLP を使わない利用者の NetworkPolicy に、テレメトリ用の穴を既定で開けないこと (MUST NOT)。
-- exposed ポート (既定 `8080`) への ingress は、probe とスクレイプに必要な送信元に
-  限定すること (MUST)。全ての送信元に開放しないこと (MUST NOT)。
+- README は、exposed ポート (既定 `8080`) への ingress を `/metrics` のスクレイプ元に
+  限定する NetworkPolicy の例を示すこと (MUST)。全ての送信元に開放する例を示さないこと
+  (MUST NOT)。
 - `/healthz` と `/metrics` は同一ポートで提供されるため、NetworkPolicy で両者を区別できない。
   probe を通す設定は同時に `/metrics` を同じ送信元へ露出させる。この前提のもとで、
   メトリクスに機微な値を含めない要件 (原則 V) を満たすこと (MUST)。
@@ -812,11 +829,21 @@ Kubernetes には、外部のシークレット管理サービスの値を Pod �
 - 認証情報は、Secret などのボリュームのマウントとしてのみ受け取ること (MUST)。認証情報をリポジトリ、イメージ、および推奨 values に
   含めないこと (MUST NOT)。平文の値を values に書かせる例を示さないこと
   (MUST NOT)。トークンを環境変数として Pod に渡す例を示さないこと (MUST NOT)。
-- 外部のシークレット管理サービスへの egress を、本サービスのために許可しないこと
-  (MUST NOT)。本サービスはそこへ接続しない。値をファイルとして届ける仕組みが
-  egress を要する場合、それはその仕組みの側の設定であり、推奨 values に含めない。
 - 上記のいずれかを緩和する設定は、推奨 values では安全側に置き、必要な利用者が
   自ら上書きする形とすること (MUST)。
+
+**ServiceAccount と egress を要件から外した根拠**: 本サービスは上流チャートの
+サイドカーとして ExternalDNS 本体と Pod を共有する。**ServiceAccount とそのトークン、
+RBAC は Pod 単位で払い出されるものであり、本サービスのスコープ外である。** 何を
+許可するかは ExternalDNS 本体の要件とチャートが決める。NetworkPolicy の egress も
+コンテナ単位ではなく Pod 単位で効き、本体は Kubernetes API への接続を要する。
+その宛先は環境ごとに異なり、egress の例を示しても実質的に絞れない。満たせない、
+あるいは本サービスが決める立場にない MUST を残すと、README が常にそれからの逸脱を
+説明し続け、規範が形骸化する。
+
+一方 ingress は、`/metrics` が無認証で公開されるため、送信元を絞る意味がある。
+probe は kubelet (ノード) から届き、多くの CNI ではノードからの通信が NetworkPolicy の
+対象外となるため、ingress をスクレイプ元に絞っても probe は通る。
 
 ## 開発ワークフローと品質ゲート
 
@@ -958,4 +985,4 @@ Kubernetes には、外部のシークレット管理サービスの値を Pod �
   リポジトリルートの `CLAUDE.md` に置き、本文書とは分離すること (MUST)。
   本文書は「何を守るか」を、`CLAUDE.md` は「どう作業するか」を扱う。
 
-**Version**: 3.1.0 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-10-07
+**Version**: 4.0.0 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-10-07

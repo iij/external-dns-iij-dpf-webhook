@@ -42,12 +42,11 @@ env:
 
   # 上流チャートのバージョンを固定する。暗黙の更新で同一コミットの
   # 判定結果が変わる状態にしない (constitution v1.3.0)。
-  CHART_VERSION: 1.21.1
-
-  # **チャートの appVersion は本 provider の前提より古い。**
-  # チャート 1.21.1 の appVersion は 0.21.0 だが、本 provider は
-  # webhook provider API v0.22.0 を前提とする。image.tag を明示する。
-  EXTERNAL_DNS_VERSION: v0.22.0
+  #
+  # README が前提とする最小のバージョン (appVersion 0.22.0) を使う。
+  # ExternalDNS 本体のバージョンは README と同じく appVersion に従わせ、
+  # image.tag で固定しない。
+  CHART_VERSION: 1.22.0
 
   NAMESPACE: external-dns
 
@@ -167,16 +166,13 @@ jobs:
           zone_no_dot="${ZONE_NAME%.}"
 
           cat > "${RUNNER_TEMP}/values.yaml" <<EOF
-          image:
-            tag: ${EXTERNAL_DNS_VERSION}
-
           # Ingress だけを見る。Service まで見ると、クラスタ内の
           # 無関係な Service がレコードを作りうる。
           sources:
             - ingress
 
           # 削除まで検証する。upsert-only では Ingress を消しても
-          # レコードが残る。
+          # レコードが残る。**README の推奨値 (upsert-only) とは異なる。**
           policy: sync
 
           txtOwnerId: sidecar-${GITHUB_RUN_ID}
