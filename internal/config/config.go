@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"slices"
 
 	"github.com/iij/external-dns-iij-dpf-webhook/internal/dnsname"
 )
@@ -36,12 +35,6 @@ var ErrInvalid = errors.New("config: invalid setting")
 // エラーとして返すが、異常ではない。呼び出し側は使い方を出力して
 // 正常終了すること。
 var ErrHelpRequested = errors.New("config: help requested")
-
-// supportedSecretManagers は対応するシークレット管理サービスの許可リスト。
-//
-// dpf-go が別モジュールとして提供する範囲を上限とする。許可リスト方式にするのは、
-// 未知の値を黙って受け入れて実行時に失敗させないため (原則 VI)。
-var supportedSecretManagers = []string{"vault", "aws", "azure", "gcp"}
 
 // Config は本サービスの設定全体を表す。
 type Config struct {
@@ -59,26 +52,11 @@ type DPF struct {
 	// Endpoint は DPF API のエンドポイント。空なら dpf-go の既定値を使う。
 	Endpoint string
 
-	// TokenFile はトークンを収めたファイルのパス。
+	// TokenFile はトークンを収めたファイルのパス。必須。
+	// トークンの供給元はこのファイルだけである (constitution v3.0.0)。
 	// 要求のたびに読み直されるため、外部でローテーションされれば再起動なしに反映される。
 	TokenFile string
-
-	// SecretManager は利用するシークレット管理サービス。supportedSecretManagers のいずれか。
-	SecretManager string
-
-	// SecretID はシークレット管理サービス上の識別子。
-	SecretID string
-
-	// SecretEndpoint はシークレット管理サービスの接続先。
-	//
-	// azure では Key Vault の URL として必須。環境から導けないため。
-	// vault では接続先の上書き、gcp ではプロジェクトの指定に使う。
-	// aws では不要 (SDK の既定の解決順に従う)。
-	SecretEndpoint string
 }
-
-// UsesSecretManager はトークンをシークレット管理サービスから取得するかを報告する。
-func (d DPF) UsesSecretManager() bool { return d.SecretManager != "" }
 
 // Server は待ち受けアドレスの設定。
 type Server struct {
@@ -155,8 +133,7 @@ func Usage() string {
 	fs.SetOutput(&buf)
 	fs.PrintDefaults()
 
-	buf.WriteString("\nアクセストークンは --dpf-token-file か、\n")
-	buf.WriteString("--dpf-token-secret-manager と --dpf-token-secret-id の組で与えます。\n")
+	buf.WriteString("\nアクセストークンは --dpf-token-file で与えます。\n")
 	buf.WriteString("環境変数と引数からトークンを受け取る経路は用意していません。\n")
 
 	return buf.String()
@@ -164,18 +141,15 @@ func Usage() string {
 
 // values は解釈済みのフラグ値を保持する。
 type values struct {
-	domains        domainFilterFlag
-	dpfEndpoint    *string
-	tokenFile      *string
-	secretManager  *string
-	secretID       *string
-	secretEndpoint *string
-	providerAddr   *string
-	exposedAddr    *string
-	otlpEndpoint   *string
-	otlpProtocol   *string
-	otlpInsecure   *bool
-	logLevel       *string
+	domains      domainFilterFlag
+	dpfEndpoint  *string
+	tokenFile    *string
+	providerAddr *string
+	exposedAddr  *string
+	otlpEndpoint *string
+	otlpProtocol *string
+	otlpInsecure *bool
+	logLevel     *string
 }
 
 // newFlagSet は設定項目を定義した FlagSet を返す。
@@ -188,12 +162,8 @@ func newFlagSet() (*flag.FlagSet, *values) {
 	fs.SetOutput(io.Discard)
 
 	var (
-		dpfEndpoint    = fs.String("dpf-endpoint", "", "DPF API のエンドポイント (未指定なら既定値)")
-		tokenFile      = fs.String("dpf-token-file", "", "DPF アクセストークンを収めたファイルのパス")
-		secretManager  = fs.String("dpf-token-secret-manager", "", "トークンを取得するシークレット管理サービス (vault|aws|azure|gcp)")
-		secretID       = fs.String("dpf-token-secret-id", "", "シークレット管理サービス上の識別子")
-		secretEndpoint = fs.String("dpf-token-secret-endpoint", "",
-			"シークレット管理サービスの接続先 (azure では Key Vault の URL として必須)")
+		dpfEndpoint  = fs.String("dpf-endpoint", "", "DPF API のエンドポイント (未指定なら既定値)")
+		tokenFile    = fs.String("dpf-token-file", "", "DPF アクセストークンを収めたファイルのパス (必須)")
 		providerAddr = fs.String("provider-addr", "127.0.0.1:8888", "webhook provider エンドポイントの待ち受けアドレス")
 		exposedAddr  = fs.String("exposed-addr", ":8080", "healthz と metrics の待ち受けアドレス")
 		otlpEndpoint = fs.String("otlp-endpoint", "", "OTLP の送出先 (未指定なら送出しない)")
@@ -202,23 +172,23 @@ func newFlagSet() (*flag.FlagSet, *values) {
 		logLevel     = fs.String("log-level", "info", "ログレベル (debug|info|warn|error)")
 	)
 	v := &values{
-		dpfEndpoint:    dpfEndpoint,
-		tokenFile:      tokenFile,
-		secretManager:  secretManager,
-		secretID:       secretID,
-		secretEndpoint: secretEndpoint,
-		providerAddr:   providerAddr,
-		exposedAddr:    exposedAddr,
-		otlpEndpoint:   otlpEndpoint,
-		otlpProtocol:   otlpProtocol,
-		otlpInsecure:   otlpInsecure,
-		logLevel:       logLevel,
+		dpfEndpoint:  dpfEndpoint,
+		tokenFile:    tokenFile,
+		providerAddr: providerAddr,
+		exposedAddr:  exposedAddr,
+		otlpEndpoint: otlpEndpoint,
+		otlpProtocol: otlpProtocol,
+		otlpInsecure: otlpInsecure,
+		logLevel:     logLevel,
 	}
 	fs.Var(&v.domains, "domain-filter", "管理対象ドメイン (複数指定可、未指定なら管理対象なし)")
 
 	// 意図的に定義しないフラグ:
 	//   --dpf-token         トークンを引数で渡す経路は作らない (constitution v1.8.0)
 	//   環境変数 DPF_API_TOKEN も参照しない。dpf-go の既定経路を使わないのはそのため。
+	//   --dpf-token-secret-manager / -id / -endpoint
+	//                       供給元をファイルに限った (constitution v3.0.0)。外部の
+	//                       シークレット管理サービスの値は Kubernetes 側でファイルにする
 	// flag はこれらを未定義として拒否するため、指定すると起動に失敗する。
 
 	return fs, v
@@ -232,11 +202,8 @@ func (v *values) build() (Config, error) {
 	}
 
 	dpf := DPF{
-		Endpoint:       *v.dpfEndpoint,
-		TokenFile:      *v.tokenFile,
-		SecretManager:  *v.secretManager,
-		SecretID:       *v.secretID,
-		SecretEndpoint: *v.secretEndpoint,
+		Endpoint:  *v.dpfEndpoint,
+		TokenFile: *v.tokenFile,
 	}
 	if err := validateTokenSource(dpf); err != nil {
 		return Config{}, err
@@ -262,36 +229,13 @@ func (v *values) build() (Config, error) {
 	}, nil
 }
 
-// validateTokenSource はトークン供給元がちょうど 1 つ指定されていることを確かめる。
+// validateTokenSource はトークンの供給元 (ファイル) が指定されていることを確かめる。
 //
-// 0 個なら起動できない (FR-017)。2 個ならどちらが使われるか曖昧になるため拒否する。
+// 指定がなければ起動できない (FR-017)。
 func validateTokenSource(d DPF) error {
-	hasFile := d.TokenFile != ""
-	hasSM := d.SecretManager != "" || d.SecretID != "" || d.SecretEndpoint != ""
-
-	switch {
-	case !hasFile && !hasSM:
-		return fmt.Errorf("%w: トークンの供給元を指定してください "+
-			"(--dpf-token-file、または --dpf-token-secret-manager と --dpf-token-secret-id)",
-			ErrMissingRequired)
-
-	case hasFile && hasSM:
-		return fmt.Errorf("%w: トークンの供給元は 1 つだけ指定してください "+
-			"(--dpf-token-file と --dpf-token-secret-manager の併用は不可)", ErrInvalid)
-
-	case hasSM:
-		if d.SecretManager == "" {
-			return fmt.Errorf("%w: --dpf-token-secret-manager を指定してください", ErrMissingRequired)
-		}
-		if d.SecretID == "" {
-			return fmt.Errorf("%w: --dpf-token-secret-id を指定してください", ErrMissingRequired)
-		}
-		if !slices.Contains(supportedSecretManagers, d.SecretManager) {
-			return fmt.Errorf("%w: --dpf-token-secret-manager %q は未対応です (対応: %v)",
-				ErrInvalid, d.SecretManager, supportedSecretManagers)
-		}
+	if d.TokenFile == "" {
+		return fmt.Errorf("%w: --dpf-token-file を指定してください", ErrMissingRequired)
 	}
-
 	return nil
 }
 

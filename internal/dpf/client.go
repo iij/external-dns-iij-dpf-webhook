@@ -40,24 +40,17 @@ type Recorder interface {
 // metrics と tracer は nil を許す。テレメトリを設定しなくても動作する。
 // テレメトリの有無で呼び出し経路が変わらないようにするため。
 func NewClient(ctx context.Context, cfg config.DPF, metrics Recorder, tracer trace.Tracer) (*Client, error) {
-	tp, err := newTokenProvider(ctx, cfg)
+	tp, err := newTokenProvider(cfg)
 	if err != nil {
 		return nil, err
 	}
 
+	// トークンはキャッシュしない。ファイルの読み取りは十分に安価であり、
+	// ローテーションの反映を遅らせる理由がないため (FR-037)。
 	opts := []utils.ClientOption{utils.WithTokenProvider(tp)}
 
 	if cfg.Endpoint != "" {
 		opts = append(opts, utils.WithEndpoint(cfg.Endpoint))
-	}
-
-	// シークレット管理サービスは呼び出しごとに外部へ問い合わせる。要求のたびに
-	// 取得すると相手側への負荷とレイテンシが無視できないため、短時間だけ保持する。
-	//
-	// ファイル経路にはキャッシュを設けない。読み取りは十分に安価であり、
-	// ローテーションの反映を遅らせる理由がないため (FR-037)。
-	if cfg.UsesSecretManager() {
-		opts = append(opts, utils.WithTokenTTL(secretManagerTokenTTL))
 	}
 
 	api, err := utils.NewClient(opts...)
@@ -99,9 +92,3 @@ func (c *Client) observe(ctx context.Context, operation string, fn func(context.
 	}
 	return err
 }
-
-// secretManagerTokenTTL はシークレット管理サービスから取得したトークンを保持する時間。
-//
-// ローテーションの反映が最大でこの時間だけ遅れる。長くするほど外部への
-// 問い合わせは減るが、失効したトークンを使い続ける窓が広がる。
-const secretManagerTokenTTL = 30 * time.Second

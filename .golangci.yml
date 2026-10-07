@@ -30,6 +30,7 @@ linters:
     - unconvert
     - unparam
     - wastedassign
+    - depguard # シークレット管理サービスの SDK を持ち込ませない (constitution v3.0.0)
 
   settings:
     errcheck:
@@ -39,6 +40,25 @@ linters:
       enable-all: true
       disable:
         - fieldalignment
+    depguard:
+      rules:
+        # constitution v3.0.0: トークンはマウントされたファイルからのみ取得し、
+        # 外部のシークレット管理サービスへ接続しない (MUST NOT)。接続するコードが
+        # リンクされないことを、レビューではなく lint で保証する。
+        no-secret-manager:
+          files:
+            - $all
+          deny:
+            - pkg: github.com/hashicorp/vault
+              desc: "constitution v3.0.0: トークンはマウントされたファイルからのみ取得する。シークレット管理サービスへ接続しない"
+            - pkg: github.com/aws/aws-sdk-go-v2
+              desc: "constitution v3.0.0: トークンはマウントされたファイルからのみ取得する。シークレット管理サービスへ接続しない"
+            - pkg: github.com/Azure/azure-sdk-for-go
+              desc: "constitution v3.0.0: トークンはマウントされたファイルからのみ取得する。シークレット管理サービスへ接続しない"
+            - pkg: cloud.google.com/go/secretmanager
+              desc: "constitution v3.0.0: トークンはマウントされたファイルからのみ取得する。シークレット管理サービスへ接続しない"
+            - pkg: github.com/iij/dpf-go/misc
+              desc: "constitution v3.0.0: トークンはマウントされたファイルからのみ取得する。シークレット管理サービスへ接続しない"
     revive:
       rules:
         - name: exported

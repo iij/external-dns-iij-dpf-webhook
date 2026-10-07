@@ -371,7 +371,7 @@ OTLP を使う場合は、送出先への egress を上記に追加してくだ�
 
 ## アクセストークンの与え方
 
-トークンの供給元は **2 つに限られます**。
+トークンの供給元は **マウントされたファイルだけ**です。
 
 ### ファイル (Secret のマウント)
 
@@ -380,43 +380,41 @@ OTLP を使う場合は、送出先への egress を上記に追加してくだ�
 ```
 
 要求のたびにファイルを読み直すため、**Secret の内容が更新されれば再起動なしに反映されます**。
+起動時にも 1 度読み、読めない・空であれば起動に失敗します。
 
-### シークレット管理サービス
+> [!WARNING]
+> **Secret を `subPath` でマウントしないでください。** `subPath` のマウントには
+> Secret の更新が反映されず、ローテーションしても古いトークンが使われ続けます。
+> 上の推奨 values のように、ディレクトリとしてマウントしてください。
 
-```
---dpf-token-secret-manager aws \
---dpf-token-secret-id prod/dpf/token
-```
+Secret を更新してから Pod 内のファイルに届くまでには、Kubernetes 側の遅延
+(kubelet の同期間隔) があります。その間は古いトークンが使われます。
 
-対応するのは `vault` / `aws` / `azure` / `gcp` です。各サービスへの接続資格情報は、
-それぞれの標準的な仕組み (環境変数、ワークロード ID、インスタンスメタデータなど) から
-解決されます。
+### 外部のシークレット管理サービスを使う場合
 
-**シークレットのどこにトークンを置くか、どう認証するか、どの権限が必要かは
-サービスごとに違います。** `--dpf-token-secret-endpoint` の意味も揃っていません
-(Azure では Key Vault の URL、GCP ではプロジェクト ID、AWS では未使用)。
-[docs/reference.md](docs/reference.md#アクセストークンの供給元) に一覧があります。
+**本 provider は Vault や各クラウドのシークレット管理サービスへ直接接続しません。**
+そこに置いたトークンを使う場合は、Kubernetes 側の仕組みで Pod 内のファイルにし、
+そのパスを `--dpf-token-file` に渡してください。
 
-とくに注意する点を 2 つだけ挙げます。
+| 仕組み | 方法 |
+|---|---|
+| [External Secrets Operator](https://external-secrets.io/) | 外部の値を Kubernetes の Secret へ同期する。その Secret を上の手順どおりマウントする |
+| [Secrets Store CSI Driver](https://secrets-store-csi-driver.sigs.k8s.io/) | 外部の値をボリュームとして直接マウントする |
 
-- **`vault` はシークレットの中の `token` フィールドを読みます。** マウントは
-  `secret`、KV バージョンは 2 に固定です (変更できません)
-- **`aws` / `azure` / `gcp` は値全体をトークンとして扱います。** `{"token": "..."}`
-  のような JSON を格納すると、その文字列全体がトークンとして送られ認証に失敗します
+導入と設定は各プロジェクトの文書に従ってください。注意点は次のとおりです。
 
-`azure` のみ Key Vault の URL が環境から導けないため、明示指定が必要です。
-
-```
---dpf-token-secret-manager azure \
---dpf-token-secret-endpoint https://myvault.vault.azure.net/ \
---dpf-token-secret-id dpf-token
-```
+- **ローテーションを反映させるには、その仕組みの側で更新を有効にする必要があります**
+  (External Secrets Operator の同期間隔、Secrets Store CSI Driver のローテーション機能)。
+  本 provider はファイルの内容が変われば次の要求から使います
+- `subPath` でマウントしないでください (上記)
+- その仕組みが外部サービスへ接続するための egress は、**その仕組みの側の設定**です。
+  本 provider の NetworkPolicy に穴を開ける必要はありません
 
 ### 環境変数と引数からは受け取りません
 
 `DPF_API_TOKEN` 環境変数や、トークンを直接渡すコマンドライン引数は**用意していません**。
-環境変数は `kubectl describe pod` やプロセスの環境から読み取れ、ファイルやシークレット
-管理サービスと同じ保護水準を満たさないためです。
+環境変数は `kubectl describe pod` やプロセスの環境から読み取れ、ファイルと同じ
+保護水準を満たさないためです。
 
 ---
 

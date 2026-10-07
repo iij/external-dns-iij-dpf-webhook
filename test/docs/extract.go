@@ -193,7 +193,7 @@ func callStringArgs(dir, funcName string, argIndex int) ([]string, error) {
 // sliceVarStrings は dir 直下の Go ファイルから、名前が varName の変数に
 // 与えられた文字列リテラルを集める。
 //
-//	var supportedSecretManagers = []string{"vault", "aws", ...}
+//	var supported = []string{"a", "b", ...}
 func sliceVarStrings(dir, varName string) ([]string, error) {
 	files, err := parseDir(dir)
 	if err != nil {
