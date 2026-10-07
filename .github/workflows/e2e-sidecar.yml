@@ -321,6 +321,13 @@ jobs:
         # 判定は本 provider の計測値で行う。反映後に一定時間おいて
         # dns_record_changes_total が増えていなければ、同じ差分の再適用は
         # 起きていない。ログの文言に頼るより、上流の実装変更に強い。
+        #
+        # **観測の起点は、最初の適用が完了した後に置く。** 前段の
+        # TestSidecarWait はレコードが DPF に見えた時点で成功するが、
+        # 本 provider の適用はゾーン反映ジョブの完了まで待ってから返り、
+        # 計測値もその時点で増える。前段の直後に起点を取ると、まだ
+        # 終わっていない最初の適用が後から数えられ、振動と誤判定する
+        # (run 37413388873 / 37415741893 / 37419290921 で 0 → 2)。
         run: |
           kubectl -n "$NAMESPACE" port-forward \
             deployment/external-dns 18080:8080 >/dev/null 2>&1 &
@@ -340,18 +347,7 @@ jobs:
               | awk '/^dns_record_changes_total/ {sum += $NF} END {printf "%d\n", sum}'
           }
 
-          before=$(changes)
-          echo "変更件数 (観測開始): ${before}"
-
-          # ExternalDNS の同期間隔は 1 分。2 回以上の同期を挟む。
-          sleep 150
-
-          after=$(changes)
-          echo "変更件数 (150 秒後): ${after}"
-
-          if [ "$after" != "$before" ]; then
-            echo "::error::同じ差分が再適用されている (${before} → ${after})。差分が振動している (SC-007)"
-
+          dump_logs() {
             # **コンテナごとに分けて出す。** --all-containers だとどちらの
             # 出力か分からず、ExternalDNS の判断と provider の受け取りを
             # 突き合わせられない。
@@ -370,7 +366,33 @@ jobs:
               echo "===== container: ${c} ====="
               kubectl -n "$NAMESPACE" logs "$pod" -c "$c" --tail=2000 || :
             done
+          }
 
+          # 最初の適用の完了を待つ。上限は ExternalDNS の書き込みの待ち時間
+          # (--webhook-provider-write-timeout=605s) より長く取る。それを超えて
+          # 完了しないなら、ExternalDNS 側では既に失敗として扱われている。
+          deadline=$((SECONDS + 660))
+          until [ "$(changes)" -ge 1 ]; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::最初の適用が 660 秒以内に完了しなかった。振動の観測を始められない"
+              dump_logs
+              exit 1
+            fi
+            sleep 5
+          done
+
+          before=$(changes)
+          echo "変更件数 (観測開始、最初の適用の完了後): ${before}"
+
+          # ExternalDNS の同期間隔は 1 分。2 回以上の同期を挟む。
+          sleep 150
+
+          after=$(changes)
+          echo "変更件数 (150 秒後): ${after}"
+
+          if [ "$after" != "$before" ]; then
+            echo "::error::同じ差分が再適用されている (${before} → ${after})。差分が振動している (SC-007)"
+            dump_logs
             exit 1
           fi
           echo "OK: 150 秒の間に追加の適用は発生しなかった"
