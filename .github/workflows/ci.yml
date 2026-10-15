@@ -91,6 +91,10 @@ jobs:
         uses: golangci/golangci-lint-action@v9.3.0
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
+          # 配布バイナリではなく、setup-go の Go でビルドする (make tools と同じ)。
+          # 配布バイナリはビルドした Go より新しい Go の標準ライブラリを
+          # 読めないことがある。Go 1.27.2 で typecheck が全滅した。
+          install-mode: goinstall
           # 設定はリポジトリの .golangci.yml を使う。ローカルと同一にするため。
           args: --timeout=5m
 
