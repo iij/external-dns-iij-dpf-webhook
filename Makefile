@@ -13,7 +13,7 @@ SBOM_FILE ?= sbom.spdx.json
 #
 # .github/workflows/ci.yml は同じ値を参照する。片方だけ更新しないこと。
 SYFT_VERSION ?= v1.51.1
-GOLANGCI_LINT_VERSION ?= v2.13.2
+GOLANGCI_LINT_VERSION ?= v2.14.0
 GOVULNCHECK_VERSION ?= v1.7.0
 GO_LICENSES_VERSION ?= latest
 BETTERLEAKS_VERSION ?= v1.8.1
