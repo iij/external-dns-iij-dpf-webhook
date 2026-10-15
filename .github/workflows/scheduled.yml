@@ -141,6 +141,10 @@ jobs:
       - name: issue を立てる
         env:
           GH_TOKEN: ${{ github.token }}
+          # このジョブは checkout しない。gh は対象のリポジトリを .git から
+          # 決めるため、明示しないと「not a git repository」で止まり、
+          # 検出があっても issue が立たない。
+          GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           VULN_RESULT: ${{ needs.govulncheck.result }}
           IMAGE_RESULT: ${{ needs.image.result }}
