@@ -148,7 +148,7 @@ Pull Request が作られることを確認する (quickstart.md 3a、3b)。
 - [x] T032 [US2] `main` のブランチ保護で、必須検査に `ci.yml` の全ジョブと `e2e` を設定する。**依存更新のために必須検査の集合を変えない** (FR-010、contracts/ci-gates.md「マージ」)
 - [x] T033 [US2] `main` のブランチ保護で、マージ (push) できる者を管理者に限る。レビュー承認の件数は必須にしない (憲章 v5.0.0)。自動マージの設定を有効にしない (FR-009)
 - [ ] T034 [US2] 実際の更新 Pull Request で、秘密情報を要さない検査が実行され、`e2e` 系が**失敗**として現れること (skipped ではないこと)、失敗の説明に次の手順が書かれていることを確認する (quickstart.md 4a)
-- [ ] T035 [US2] その Pull Request のブランチへコミットを 1 つ積み、**必須検査すべてが実行されその結果が Pull Request に紐づくこと**を確認する (FR-015、quickstart.md 4b)
+- [x] T035 [US2] その Pull Request のブランチへコミットを 1 つ積み、**必須検査すべてが実行されその結果が Pull Request に紐づくこと**を確認する (FR-015、quickstart.md 4b)
 
 **Checkpoint**: US1 と US2 が独立して機能する。提案と判断材料が揃う
 
@@ -177,9 +177,9 @@ Pull Request が作られることを確認する (quickstart.md 3a、3b)。
 
 ### 検査が確かに落ちることの確認 ⚠️
 
-- [ ] T042 [US3] `workflow_dispatch` で `.github/workflows/scheduled.yml` を走らせ、正常時に報告が出ないことを確認する (quickstart.md 6a の 1 行目、6b の 1 行目)
-- [ ] T043 [US3] `.github/dependabot.yml` の `gomod` の節を一時的に壊した状態で T037 を走らせ、**提案の欠落が報告されること**を確認する。「更新がない」と「仕組みが動いていない」が区別できることがこの検査の目的である (quickstart.md 6a)
-- [ ] T044 [US3] `.github/workflows/scheduled.yml` の滞留の判定について、30 日以内の Pull Request で報告が出ないこと、30 日を超えたもので報告が出ることを確認する。閾値を一時的に下げて確かめてよい (quickstart.md 6b)
+- [x] T042 [US3] `workflow_dispatch` で `.github/workflows/scheduled.yml` を走らせ、正常時に報告が出ないことを確認する (quickstart.md 6a の 1 行目、6b の 1 行目)
+- [x] T043 [US3] `.github/dependabot.yml` の `gomod` の節を一時的に壊した状態で T037 を走らせ、**提案の欠落が報告されること**を確認する。「更新がない」と「仕組みが動いていない」が区別できることがこの検査の目的である (quickstart.md 6a)
+- [x] T044 [US3] `.github/workflows/scheduled.yml` の滞留の判定について、30 日以内の Pull Request で報告が出ないこと、30 日を超えたもので報告が出ることを確認する。閾値を一時的に下げて確かめてよい (quickstart.md 6b)
 
 **Checkpoint**: US1・US2・US3 がすべて独立して機能する
 
