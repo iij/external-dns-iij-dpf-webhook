@@ -189,7 +189,7 @@ Pull Request が作られることを確認する (quickstart.md 3a、3b)。
 
 - [X] T045 [P] `make all` と `actionlint` がすべて通ることを確認する
 - [ ] T046 [P] `specs/002-dependabot-auto-merge/quickstart.md` を最初から通しで実行し、各節の期待される結果と一致することを確認する
-- [ ] T047 憲章「開発ワークフローと品質ゲート」および「実環境での検証」が必須とする検査の一覧と、ブランチ保護の必須検査の設定を突き合わせる。**依存更新のために減らした集合になっていないこと**を確認する (FR-010、SC-004)
+- [x] T047 憲章「開発ワークフローと品質ゲート」および「実環境での検証」が必須とする検査の一覧と、ブランチ保護の必須検査の設定を突き合わせる。**依存更新のために減らした集合になっていないこと**を確認する (FR-010、SC-004)
 - [ ] T048 `.specify/feature.json` が別の feature を指している場合に備え、本機能の完了時点で `specs/002-dependabot-auto-merge/tasks.md` のチェックがすべて埋まっていることを確認する
 - [x] T049 Dependabot secrets に不要な資格情報が残っていないことを確認する。`DPF_GO_READ_TOKEN` は設けない。`DPF_TOKEN` を Dependabot secret として登録しない (FR-013、quickstart.md 7)
 
