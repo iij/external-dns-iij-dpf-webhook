@@ -110,7 +110,7 @@ Pull Request が作られることを確認する (quickstart.md 3a、3b)。
 
 ### 設定が読まれたことの確認 (GitHub 側)
 
-- [ ] T019 [US1] `.github/dependabot.yml` を main へ入れた後、Insights → Dependency graph → Dependabot を開き、3 種別が一覧に現れること、最後に確認した時刻が投入後に更新されていること、**エラーが出ていないこと**を確認する (quickstart.md 3a)
+- [x] T019 [US1] `.github/dependabot.yml` を main へ入れた後、Insights → Dependency graph → Dependabot を開き、3 種別が一覧に現れること、最後に確認した時刻が投入後に更新されていること、**エラーが出ていないこと**を確認する (quickstart.md 3a)
 - [ ] T020 [US1] "Check for updates" を手動実行し、種別ごとの Pull Request が各 1 件にまとまっていること、本文に更新前後の版と上流の比較への導線があること、ラベル `dependencies` が付くことを確認する (FR-006、quickstart.md 3b)
 - [x] T021 [US1] リポジトリ設定で **Dependabot alerts** と **Dependabot security updates** を有効にする。**`.github/dependabot.yml` では有効にできない。** FR-003 (脆弱性の修正に待機期間を適用しない) と SC-003 (公開から 1 日以内に提案される) はこの設定に依存しており、無効のままだと脆弱性の修正も `cooldown: 5` に阻まれた状態が続く (research R8、data-model.md「設定の所在」、quickstart.md 3c)
 
