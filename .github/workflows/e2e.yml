@@ -2,9 +2,15 @@
 
 # 実際の DPF に対してレコードの追加・変更・削除を検証する。
 #
-# constitution v2.1.0: `main` へマージする前に、実際の DPF に対してレコードの
-# 追加・変更・削除を CI で実行し、成功することを確認すること (MUST)。
-# 手元での確認をもって代えないこと (MUST NOT)。
+# constitution v6.0.0: リリースの前に (リリースのためのブランチを `main` へ
+# マージする前に)、実際の DPF に対してレコードの追加・変更・削除を CI で
+# 実行し、成功することを確認すること (MUST)。手元での確認をもって代えない
+# こと (MUST NOT)。確認できていない成果物を配布しないこと (MUST NOT)。
+#
+# **release/* ブランチを main へ向けた PR と、手動実行でだけ走る。** 通常の
+# PR では全ジョブが飛ばされる。1 回が 20 分を超えるため、個々のマージの
+# たびには走らせない。配布の前の確認は release.yml が行う (この PR で全検査が
+# 成功していなければイメージを公開しない)。
 #
 # **破壊的操作を行う。** 検証用ゾーンでのみ実行する。
 #
@@ -37,13 +43,29 @@ permissions:
 #
 # cancel-in-progress は false とする。途中で打ち切ると、後始末が走らずに
 # 検証用ゾーンへレコードが residue として残る。
+#
+# **検証を行う実行だけをこのグループに入れる。** GitHub は 1 つのグループに
+# 「実行中 1 + 待機 1」しか保持せず、3 つ目が来ると待機中のものを cancel
+# する。全ジョブが飛ばされる通常の PR の実行も、グループに入れば待機中の
+# リリースの検証を押し出しうる。それらは実行ごとに別のグループへ入れる。
+# 条件は下の各ジョブの if: と揃えること。
 concurrency:
-  group: e2e-verification-zone
+  group: >-
+    ${{ (github.event_name == 'workflow_dispatch' ||
+    (github.event.pull_request.base.ref == 'main' &&
+    startsWith(github.head_ref, 'release/')))
+    && 'e2e-verification-zone'
+    || format('e2e-not-release-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
+  # 条件はブランチ名であり、起点ではない (FR-014)。
   e2e:
     name: 実際の DPF に対する検証
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.base.ref == 'main' &&
+      startsWith(github.head_ref, 'release/'))
     runs-on: ubuntu-latest
     # 反映の待ち合わせを含むため、既定より長く取る。
     timeout-minutes: 30
@@ -61,7 +83,6 @@ jobs:
         env:
           DPF_TOKEN: ${{ secrets.DPF_TOKEN }}
           ZONE_NAME: ${{ vars.DPF_TEST_ZONE_NAME }}
-          GITHUB_ACTOR: ${{ github.actor }}
         run: |
           # 要約に出すのは Markdown であり、`DPF_TOKEN` などはコード表記である。
           # シェルに展開させたい変数ではないため、単引用符のままにする。
@@ -73,7 +94,7 @@ jobs:
             {
               echo "### 実環境での検証が行われませんでした"
               echo
-              echo 'constitution v2.1.0 は、`main` へマージする前に実際の DPF に対する'
+              echo 'constitution v6.0.0 は、リリースの前に実際の DPF に対する'
               echo '検証を MUST としています。次を設定してください。'
               echo
               echo '| 種別 | 名前 | 内容 |'
@@ -84,25 +105,6 @@ jobs:
               echo
               echo '**破壊的操作を行います。本番ゾーンを指定しないでください。**'
             } >> "$GITHUB_STEP_SUMMARY"
-            if [ "$GITHUB_ACTOR" = "dependabot[bot]" ]; then
-              {
-                echo
-                echo '#### この Pull Request は Dependabot が起点です'
-                echo
-                echo 'Dependabot 起点の実行は Actions secrets を参照できません。'
-                echo '**これは設定の不足ではなく、意図した状態です。** 更新後の依存コードと'
-                echo '検証用ゾーンのトークンを同じ実行に同居させないためです (FR-013)。'
-                echo
-                echo '次の手順で引き取ってください。'
-                echo
-                echo '1. 更新内容 (上流の差分) を確認する'
-                echo '2. **この Pull Request のブランチへコミットを 1 つ積む**'
-                echo '3. 以降の実行は保守担当者が起点となり、全検査が実行される'
-                echo
-                echo '検査を飛ばす設定は足さないでください。skipped はブランチ保護で'
-                echo '成功として数えられます (FR-014)。'
-              } >> "$GITHUB_STEP_SUMMARY"
-            fi
             exit 1
           fi
 
@@ -135,15 +137,14 @@ jobs:
   # concurrency の説明と同じで、検証用ゾーンが共有される状態だからである。
   # ここは 1,000 件を作って消すため、同時に走ると他方の件数の表明が壊れる。
   #
-  # `main` へ向けた PR と手動実行に限る。作成と削除に時間がかかるため、
-  # すべての PR で走らせると開発の回転が落ちる。constitution v2.1.0 が
-  # 求めるのは `main` へマージする前の確認である。
+  # 起動の条件は e2e と揃える。
   scale:
     name: 1,000 件規模での検証
     needs: e2e
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.pull_request.base.ref == 'main'
+      (github.event.pull_request.base.ref == 'main' &&
+      startsWith(github.head_ref, 'release/'))
     runs-on: ubuntu-latest
     # 1,000 件の作成・再適用・削除と、その間の一覧取得を含む。
     timeout-minutes: 45
@@ -161,7 +162,6 @@ jobs:
         env:
           DPF_TOKEN: ${{ secrets.DPF_TOKEN }}
           ZONE_NAME: ${{ vars.DPF_TEST_ZONE_NAME }}
-          GITHUB_ACTOR: ${{ github.actor }}
         run: |
           # 要約に出すのは Markdown であり、`DPF_TOKEN` などはコード表記である。
           # シェルに展開させたい変数ではないため、単引用符のままにする。
@@ -176,23 +176,6 @@ jobs:
               echo '| シークレット | `DPF_TOKEN` | 検証用ゾーンを操作できる DPF アクセストークン |'
               echo '| 変数 | `DPF_TEST_ZONE_NAME` | 検証用ゾーン名 (例: `sub.example.jp.`) |'
             } >> "$GITHUB_STEP_SUMMARY"
-            if [ "$GITHUB_ACTOR" = "dependabot[bot]" ]; then
-              {
-                echo
-                echo '#### この Pull Request は Dependabot が起点です'
-                echo
-                echo 'Dependabot 起点の実行は Actions secrets を参照できません。'
-                echo '**これは設定の不足ではなく、意図した状態です。** 更新後の依存コードと'
-                echo '検証用ゾーンのトークンを同じ実行に同居させないためです (FR-013)。'
-                echo
-                echo '1. 更新内容 (上流の差分) を確認する'
-                echo '2. **この Pull Request のブランチへコミットを 1 つ積む**'
-                echo '3. 以降の実行は保守担当者が起点となり、全検査が実行される'
-                echo
-                echo '検査を飛ばす設定は足さないでください。skipped はブランチ保護で'
-                echo '成功として数えられます (FR-014)。'
-              } >> "$GITHUB_STEP_SUMMARY"
-            fi
             exit 1
           fi
           umask 077
@@ -224,14 +207,13 @@ jobs:
   # `needs` で scale の後ろに繋ぐ。**同じ実行の中でもジョブは並列に走る。**
   # 繋がないと、検証用ゾーンを同時に書き換えて互いの表明を壊す。
   #
-  # 起動の条件は scale と揃える。`main` へ向けた PR と手動実行に限る。
-  # クラスタの起動とイメージのビルドを含み、すべての PR で走らせると
-  # 開発の回転が落ちる。
+  # 起動の条件は e2e と揃える。
   sidecar:
     needs: scale
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.pull_request.base.ref == 'main'
+      (github.event.pull_request.base.ref == 'main' &&
+      startsWith(github.head_ref, 'release/'))
     uses: ./.github/workflows/e2e-sidecar.yml
     # 呼ばれた側が secrets.DPF_TOKEN を使う。再利用ワークフローへは
     # 明示的に渡す必要がある。
