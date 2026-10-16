@@ -97,7 +97,7 @@ jobs:
             REVISION=${{ github.sha }}
 
       - name: SBOM を SPDX JSON で生成する
-        uses: anchore/sbom-action@v0.24.2
+        uses: anchore/sbom-action@v0.24.3
         with:
           # push 済みのイメージをダイジェストで指定する。タグではなく
           # ダイジェストを使うのは、アテステーションの対象と走査の対象が
