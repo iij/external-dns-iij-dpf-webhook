@@ -192,6 +192,22 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
 
+      # **検証に使う道具は、このワークフローを実行しているコミットから取る。**
+      # ビルドするソースはタグのものだが、検証スクリプトまでタグから取ると、
+      # タグより後に検証側の不具合を直しても、そのリリースの再実行に効かない。
+      # v0.1.0 で、古い閾値のまま再実行が失敗した。リリースの公開を起点とする
+      # 場合は github.sha がタグのコミットであり、従来と同じになる。
+      #
+      # イメージのビルドより後に取得する。先に置くと、ビルドのコンテキスト
+      # (リポジトリの直下) に tooling/ が入る。
+      - name: 検証の道具を取得する
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          fetch-depth: 1
+          sparse-checkout: .github/scripts
+
       - name: SBOM の内容を検証する
         run: |
           # 空や壊れた SBOM をそのまま添付・署名すると、供給網の情報が
@@ -200,7 +216,7 @@ jobs:
             echo "::error::$SBOM_FILE が生成されていません"
             exit 1
           fi
-          python3 .github/scripts/verify_sbom.py "$SBOM_FILE"
+          python3 tooling/.github/scripts/verify_sbom.py "$SBOM_FILE"
 
       - name: SBOM をイメージのアテステーションとして紐づける
         uses: actions/attest-sbom@v4.1.0
