@@ -222,7 +222,7 @@ README に載せた推奨 values をそのまま使う。**README を直した�
 
 依存パッケージの更新は Dependabot が検出し、更新 Pull Request を自動で作る。
 設定は [`.github/dependabot.yml`](../.github/dependabot.yml)。**マージは自動化
-しない。** 人のレビューと承認を経る。
+しない。** 管理者がマージする。
 
 ### 更新 Pull Request を取り込む手順
 
@@ -239,7 +239,7 @@ Dependabot 起点の実行は Actions secrets を参照できない。**これ�
 2. **その Pull Request のブランチへコミットを 1 つ積む**
 3. 以降の実行は保守担当者が起点となり、**必須検査すべてが実行される**。
    結果はその Pull Request に紐づく
-4. レビュー承認を経てマージする
+4. 管理者がマージする
 
 **この経路のために新しいワークフローを作らない。** 通常の `pull_request` の
 実行がそのまま該当する。依存更新のために検査を減らした経路を設けないことが
@@ -288,7 +288,7 @@ Dependabot が扱うのは次の 3 種別である。
 | 設定 | 場所 |
 |---|---|
 | Dependabot alerts / security updates を有効にする | Settings → Advanced Security |
-| ブランチ保護 (必須検査 + レビュー承認) | Settings → Branches |
+| ブランチ保護 (必須検査 + マージを管理者に限る) | Settings → Branches |
 
 **セキュリティ更新が無効だと、脆弱性の修正も待機期間 5 日に阻まれた状態が
 続く。** `.github/dependabot.yml` をどう書いても有効にはできない。

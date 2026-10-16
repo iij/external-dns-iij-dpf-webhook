@@ -140,13 +140,13 @@ Pull Request が作られることを確認する (quickstart.md 3a、3b)。
 - [X] T027 [US2] `docs/development.md` のツール一覧に `actionlint` を追記する
 - [X] T028 [US2] `.github/workflows/e2e.yml` の「検証用の資格情報を用意する」ステップの失敗メッセージに、**Dependabot 起点の場合の次の手順**を足す。contracts/ci-gates.md が示す文面 (上流の差分を確認したうえで、この Pull Request のブランチへコミットを 1 つ積む) を `GITHUB_STEP_SUMMARY` に出す。**`if:` で飛ばす形にしない** (FR-014、FR-019)
 - [X] T029 [US2] `.github/workflows/e2e-sidecar.yml` の「検証用の資格情報を確認する」ステップにも T028 と同じ案内を足す
-- [X] T030 [US2] `docs/development.md` に「依存更新 Pull Request を取り込む手順」の節を足す。上流の差分を確認する → その Pull Request のブランチへコミットを 1 つ積む → 以降の実行では全検査が走る → レビュー承認を経てマージする、という流れを書く。**新しいワークフローを作らないこと**と、その理由 (FR-010、FR-015) を併記する
+- [X] T030 [US2] `docs/development.md` に「依存更新 Pull Request を取り込む手順」の節を足す。上流の差分を確認する → その Pull Request のブランチへコミットを 1 つ積む → 以降の実行では全検査が走る → 管理者がマージする、という流れを書く。**新しいワークフローを作らないこと**と、その理由 (FR-010、FR-015) を併記する
 - [X] T031 [US2] `docs/development.md` に、**Dependabot の対象外**である項目を明記する。`Makefile` と `ci.yml` の `env` に固定したツール版 (`GOLANGCI_LINT_VERSION`、`GOVULNCHECK_VERSION`、`SYFT_VERSION`、`ACTIONLINT_VERSION`) は依存の記述ではないため更新は人が行う (plan.md「技術・配布制約との関係」、research R6 末尾)
 
 ### ブランチ保護 (GitHub 側の手作業)
 
 - [ ] T032 [US2] `main` のブランチ保護で、必須検査に `ci.yml` の全ジョブと `e2e` を設定する。**依存更新のために必須検査の集合を変えない** (FR-010、contracts/ci-gates.md「マージ」)
-- [ ] T033 [US2] `main` のブランチ保護で、レビュー承認を 1 件以上必須にする。自動マージの設定を有効にしない (FR-009)
+- [ ] T033 [US2] `main` のブランチ保護で、マージ (push) できる者を管理者に限る。レビュー承認の件数は必須にしない (憲章 v5.0.0)。自動マージの設定を有効にしない (FR-009)
 - [ ] T034 [US2] 実際の更新 Pull Request で、秘密情報を要さない検査が実行され、`e2e` 系が**失敗**として現れること (skipped ではないこと)、失敗の説明に次の手順が書かれていることを確認する (quickstart.md 4a)
 - [ ] T035 [US2] その Pull Request のブランチへコミットを 1 つ積み、**必須検査すべてが実行されその結果が Pull Request に紐づくこと**を確認する (FR-015、quickstart.md 4b)
 
