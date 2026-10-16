@@ -43,8 +43,90 @@ env:
   SBOM_FILE: sbom.spdx.json
 
 jobs:
+  # **確認を経ていない成果物は公開しない (constitution v6.0.0)。**
+  #
+  # 実際の DPF に対する検証 (e2e、1,000 件規模、サイドカー構成) は、
+  # release/* ブランチを main へマージする PR でだけ走る (e2e.yml)。
+  # ブランチ保護はマージ先でしか条件を分けられず、これらを「release/* の
+  # PR にだけ必須」にはできない。そこで公開の側で確かめる。
+  #
+  # タグは release/* の PR を main へマージしたコミットに打つこと。
+  # そのコミットから PR をたどり、PR の最後のコミットで全検査が成功して
+  # いることを確かめる。
+  verify:
+    name: リリース前の検証が通っていることを確かめる
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+
+    steps:
+      - name: タグのコミットを main へ入れた release/* の PR を確かめる
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${EVENT_TAG:-$INPUT_TAG}"
+          if [ -z "$tag" ]; then
+            echo "::error::対象のタグを決められません"
+            exit 1
+          fi
+
+          sha=$(gh api "repos/${GH_REPO}/commits/${tag}" --jq .sha)
+
+          # release/* から main へマージされた PR だけを数える。
+          pr=$(gh api "repos/${GH_REPO}/commits/${sha}/pulls" --jq '
+            [.[] | select(.merged_at != null and .base.ref == "main"
+                          and (.head.ref | startswith("release/")))]
+            | first // empty | "\(.number) \(.head.sha)"')
+          if [ -z "$pr" ]; then
+            echo "::error::タグ ${tag} (${sha}) は release/* の PR を main へマージしたコミットではありません。リリース前の検証を確かめられないため公開しません"
+            exit 1
+          fi
+          number=${pr%% *}
+          head=${pr#* }
+
+          # ci.yml の 4 件と、release/* の PR でだけ走る e2e.yml の 3 件。
+          required=(
+            "シークレットの混入検査"
+            "Go の品質ゲート"
+            "脆弱性検査"
+            "配布イメージの検証"
+            "実際の DPF に対する検証"
+            "1,000 件規模での検証"
+            "sidecar / ExternalDNS サイドカー構成での検証"
+          )
+
+          runs=$(gh api "repos/${GH_REPO}/commits/${head}/check-runs?filter=latest&per_page=100" \
+            --jq '.check_runs[] | [.name, (.conclusion // .status)] | @tsv')
+
+          failed=0
+          {
+            echo "### リリース前の検証 (PR #${number}、${head:0:7})"
+            echo
+            echo "| 検査 | 結果 |"
+            echo "|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for name in "${required[@]}"; do
+            result=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1 == n {print $2; exit}')
+            echo "| ${name} | ${result:-なし} |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$result" != "success" ]; then
+              echo "::error::PR #${number} で「${name}」が成功していません (${result:-実行なし})"
+              failed=1
+            fi
+          done
+
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::リリース前の検証を通っていないため公開しません。release/* の PR で全検査を通してからタグを打ち直してください"
+            exit 1
+          fi
+
   release:
     name: イメージを公開し SBOM を添付する
+    needs: verify
     runs-on: ubuntu-latest
 
     steps:
