@@ -10,7 +10,9 @@ constitution が定めています。
 
 ## [Unreleased]
 
-**まだリリースしていません。** 最初のリリースに含まれる内容をここにまとめています。
+## [0.1.0] - 2026-10-16
+
+最初のリリースです。
 
 ### Added
 
@@ -85,4 +87,5 @@ constitution が定めています。
 - `golang.org/x/net` を v0.61.0 へ更新し、HTTP/2 の SETTINGS フレームによる
   サービス拒否 (CVE-2026-78669) を修正した。配布イメージの走査で検出されたもの
 
-[Unreleased]: https://github.com/iij/external-dns-iij-dpf-webhook/commits/main
+[Unreleased]: https://github.com/iij/external-dns-iij-dpf-webhook/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/iij/external-dns-iij-dpf-webhook/releases/tag/v0.1.0
