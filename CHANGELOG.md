@@ -73,4 +73,16 @@ constitution が定めています。
 - `/metrics` のスクレイプ元だけに ingress を絞る NetworkPolicy の例を README に示す。
   egress は同居する ExternalDNS 本体が Kubernetes API に接続するため、例を示さない
 
+### Security
+
+- ビルドに使う Go を 1.27.2 へ更新し、標準ライブラリの脆弱性を修正した。
+  いずれも本サービスの HTTP サーバーから到達する経路にある
+  - `net/http` / HTTP/2: GO-2026-6617、GO-2026-6613、GO-2026-6612、GO-2026-6611、
+    GO-2026-6610、GO-2026-6605、GO-2026-6603
+  - `net/textproto`: GO-2026-6608
+  - `crypto/tls`: GO-2026-6607
+  - `html/template`: GO-2026-6600、GO-2026-6599
+- `golang.org/x/net` を v0.61.0 へ更新し、HTTP/2 の SETTINGS フレームによる
+  サービス拒否 (CVE-2026-78669) を修正した。配布イメージの走査で検出されたもの
+
 [Unreleased]: https://github.com/iij/external-dns-iij-dpf-webhook/commits/main
