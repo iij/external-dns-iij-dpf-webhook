@@ -31,8 +31,8 @@ var forbiddenAutoMergePatterns = []string{
 
 // T022: 自動マージを行う仕組みが存在しないこと (FR-009)
 //
-// 憲章「開発ワークフローと品質ゲート」がレビュー承認なしのマージを禁じている。
-// マージは人のレビューと承認を経る。
+// 憲章「開発ワークフローと品質ゲート」が main へのマージを管理者に限っている。
+// マージは管理者が行う。
 func TestNoAutoMergeMechanism(t *testing.T) {
 	workflows, err := loadWorkflows()
 	if err != nil {
@@ -63,7 +63,7 @@ func TestNoAutoMergeMechanism(t *testing.T) {
 			if onlyInComments(content, pat) {
 				continue
 			}
-			t.Errorf("%s: %q が現れる。マージは人のレビューと承認を経る (FR-009)", name, pat)
+			t.Errorf("%s: %q が現れる。マージは管理者が行う (FR-009)", name, pat)
 		}
 	}
 }
