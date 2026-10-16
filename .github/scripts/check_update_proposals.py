@@ -15,6 +15,10 @@ Dependabot の実行状態を問い合わせる公開 API はない。そこで 
 版は提案されないのが正しい (FR-002)。これを報告すると、毎回鳴る警報になり、
 本当の欠落が埋もれる。
 
+待機期間を満たしても、すぐには提案されない。Dependabot は週 1 回しか走らない
+ため、待機期間が明けてから次の実行までの最大 7 日も待つ。この猶予を見込まない
+と、正常な状態を欠落として報告する。
+
 入力:
   modules.json  `go list -m -u -json all` の出力 (JSON オブジェクトの連結)
   prs.json      `gh pr list --json number,title,body` の出力 (JSON 配列)
@@ -31,6 +35,13 @@ from datetime import datetime, timedelta, timezone
 # 版の公開からこの日数が経つまで提案されない (.github/dependabot.yml の
 # cooldown.default-days と同じ値)。**片方だけ変えないこと。**
 COOLDOWN_DAYS = 5
+
+# Dependabot の実行間隔 (.github/dependabot.yml の schedule.interval: weekly)。
+# 待機期間が明けた版が提案されるのは、その後の最初の実行である。
+SCHEDULE_INTERVAL_DAYS = 7
+
+# 公開からこの日数を過ぎても提案されていなければ欠落とみなす。
+GRACE_DAYS = COOLDOWN_DAYS + SCHEDULE_INTERVAL_DAYS
 
 
 def iter_json_objects(text: str):
@@ -61,8 +72,8 @@ def parse_time(value: str) -> datetime | None:
 
 
 def expected_updates(modules_text: str, now: datetime) -> list[tuple[str, str]]:
-    """待機期間を満たし、提案されているべき直接依存を返す。"""
-    threshold = now - timedelta(days=COOLDOWN_DAYS)
+    """待機期間と次の実行までの猶予を過ぎ、提案されているべき直接依存を返す。"""
+    threshold = now - timedelta(days=GRACE_DAYS)
     expected = []
 
     for mod in iter_json_objects(modules_text):
@@ -78,7 +89,7 @@ def expected_updates(modules_text: str, now: datetime) -> list[tuple[str, str]]:
             # 判定できないものを欠落として挙げると、毎回鳴る警報になる。
             continue
         if published > threshold:
-            continue  # 待機期間内。提案されないのが正しい
+            continue  # 待機期間内か、次の実行を待っている。提案されないのが正しい
 
         expected.append((mod["Path"], update["Version"]))
 
@@ -109,10 +120,13 @@ def main() -> int:
     missing = [(path, version) for path, version in expected if path not in haystack]
 
     if not expected:
-        print(f"待機期間 ({COOLDOWN_DAYS} 日) を満たす更新可能な直接依存はありません。")
+        print(
+            f"公開から {GRACE_DAYS} 日 (待機期間 {COOLDOWN_DAYS} 日 + 実行間隔 "
+            f"{SCHEDULE_INTERVAL_DAYS} 日) を過ぎた更新可能な直接依存はありません。"
+        )
         return 0
 
-    print(f"待機期間を満たす更新可能な直接依存: {len(expected)} 件")
+    print(f"公開から {GRACE_DAYS} 日を過ぎた更新可能な直接依存: {len(expected)} 件")
     for path, version in expected:
         mark = "提案なし" if (path, version) in missing else "提案あり"
         print(f"  [{mark}] {path} -> {version}")

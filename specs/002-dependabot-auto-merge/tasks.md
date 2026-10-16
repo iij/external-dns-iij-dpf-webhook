@@ -112,7 +112,7 @@ Pull Request が作られることを確認する (quickstart.md 3a、3b)。
 
 - [ ] T019 [US1] `.github/dependabot.yml` を main へ入れた後、Insights → Dependency graph → Dependabot を開き、3 種別が一覧に現れること、最後に確認した時刻が投入後に更新されていること、**エラーが出ていないこと**を確認する (quickstart.md 3a)
 - [ ] T020 [US1] "Check for updates" を手動実行し、種別ごとの Pull Request が各 1 件にまとまっていること、本文に更新前後の版と上流の比較への導線があること、ラベル `dependencies` が付くことを確認する (FR-006、quickstart.md 3b)
-- [ ] T021 [US1] リポジトリ設定で **Dependabot alerts** と **Dependabot security updates** を有効にする。**`.github/dependabot.yml` では有効にできない。** FR-003 (脆弱性の修正に待機期間を適用しない) と SC-003 (公開から 1 日以内に提案される) はこの設定に依存しており、無効のままだと脆弱性の修正も `cooldown: 5` に阻まれた状態が続く (research R8、data-model.md「設定の所在」、quickstart.md 3c)
+- [x] T021 [US1] リポジトリ設定で **Dependabot alerts** と **Dependabot security updates** を有効にする。**`.github/dependabot.yml` では有効にできない。** FR-003 (脆弱性の修正に待機期間を適用しない) と SC-003 (公開から 1 日以内に提案される) はこの設定に依存しており、無効のままだと脆弱性の修正も `cooldown: 5` に阻まれた状態が続く (research R8、data-model.md「設定の所在」、quickstart.md 3c)
 
 **Checkpoint**: US1 が独立して機能する。更新が自動で提案される
 
@@ -145,8 +145,8 @@ Pull Request が作られることを確認する (quickstart.md 3a、3b)。
 
 ### ブランチ保護 (GitHub 側の手作業)
 
-- [ ] T032 [US2] `main` のブランチ保護で、必須検査に `ci.yml` の全ジョブと `e2e` を設定する。**依存更新のために必須検査の集合を変えない** (FR-010、contracts/ci-gates.md「マージ」)
-- [ ] T033 [US2] `main` のブランチ保護で、マージ (push) できる者を管理者に限る。レビュー承認の件数は必須にしない (憲章 v5.0.0)。自動マージの設定を有効にしない (FR-009)
+- [x] T032 [US2] `main` のブランチ保護で、必須検査に `ci.yml` の全ジョブと `e2e` を設定する。**依存更新のために必須検査の集合を変えない** (FR-010、contracts/ci-gates.md「マージ」)
+- [x] T033 [US2] `main` のブランチ保護で、マージ (push) できる者を管理者に限る。レビュー承認の件数は必須にしない (憲章 v5.0.0)。自動マージの設定を有効にしない (FR-009)
 - [ ] T034 [US2] 実際の更新 Pull Request で、秘密情報を要さない検査が実行され、`e2e` 系が**失敗**として現れること (skipped ではないこと)、失敗の説明に次の手順が書かれていることを確認する (quickstart.md 4a)
 - [ ] T035 [US2] その Pull Request のブランチへコミットを 1 つ積み、**必須検査すべてが実行されその結果が Pull Request に紐づくこと**を確認する (FR-015、quickstart.md 4b)
 
@@ -191,7 +191,7 @@ Pull Request が作られることを確認する (quickstart.md 3a、3b)。
 - [ ] T046 [P] `specs/002-dependabot-auto-merge/quickstart.md` を最初から通しで実行し、各節の期待される結果と一致することを確認する
 - [ ] T047 憲章「開発ワークフローと品質ゲート」および「実環境での検証」が必須とする検査の一覧と、ブランチ保護の必須検査の設定を突き合わせる。**依存更新のために減らした集合になっていないこと**を確認する (FR-010、SC-004)
 - [ ] T048 `.specify/feature.json` が別の feature を指している場合に備え、本機能の完了時点で `specs/002-dependabot-auto-merge/tasks.md` のチェックがすべて埋まっていることを確認する
-- [ ] T049 Dependabot secrets に不要な資格情報が残っていないことを確認する。`DPF_GO_READ_TOKEN` は設けない。`DPF_TOKEN` を Dependabot secret として登録しない (FR-013、quickstart.md 7)
+- [x] T049 Dependabot secrets に不要な資格情報が残っていないことを確認する。`DPF_GO_READ_TOKEN` は設けない。`DPF_TOKEN` を Dependabot secret として登録しない (FR-013、quickstart.md 7)
 
 ---
 
