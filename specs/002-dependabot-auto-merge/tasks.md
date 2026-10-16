@@ -110,7 +110,7 @@ Pull Request が作られることを確認する (quickstart.md 3a、3b)。
 
 ### 設定が読まれたことの確認 (GitHub 側)
 
-- [ ] T019 [US1] `.github/dependabot.yml` を main へ入れた後、Insights → Dependency graph → Dependabot を開き、3 種別が一覧に現れること、最後に確認した時刻が投入後に更新されていること、**エラーが出ていないこと**を確認する (quickstart.md 3a)
+- [x] T019 [US1] `.github/dependabot.yml` を main へ入れた後、Insights → Dependency graph → Dependabot を開き、3 種別が一覧に現れること、最後に確認した時刻が投入後に更新されていること、**エラーが出ていないこと**を確認する (quickstart.md 3a)
 - [ ] T020 [US1] "Check for updates" を手動実行し、種別ごとの Pull Request が各 1 件にまとまっていること、本文に更新前後の版と上流の比較への導線があること、ラベル `dependencies` が付くことを確認する (FR-006、quickstart.md 3b)
 - [x] T021 [US1] リポジトリ設定で **Dependabot alerts** と **Dependabot security updates** を有効にする。**`.github/dependabot.yml` では有効にできない。** FR-003 (脆弱性の修正に待機期間を適用しない) と SC-003 (公開から 1 日以内に提案される) はこの設定に依存しており、無効のままだと脆弱性の修正も `cooldown: 5` に阻まれた状態が続く (research R8、data-model.md「設定の所在」、quickstart.md 3c)
 
@@ -147,8 +147,8 @@ Pull Request が作られることを確認する (quickstart.md 3a、3b)。
 
 - [x] T032 [US2] `main` のブランチ保護で、必須検査に `ci.yml` の全ジョブと `e2e` を設定する。**依存更新のために必須検査の集合を変えない** (FR-010、contracts/ci-gates.md「マージ」)
 - [x] T033 [US2] `main` のブランチ保護で、マージ (push) できる者を管理者に限る。レビュー承認の件数は必須にしない (憲章 v5.0.0)。自動マージの設定を有効にしない (FR-009)
-- [ ] T034 [US2] 実際の更新 Pull Request で、秘密情報を要さない検査が実行され、`e2e` 系が**失敗**として現れること (skipped ではないこと)、失敗の説明に次の手順が書かれていることを確認する (quickstart.md 4a)
-- [ ] T035 [US2] その Pull Request のブランチへコミットを 1 つ積み、**必須検査すべてが実行されその結果が Pull Request に紐づくこと**を確認する (FR-015、quickstart.md 4b)
+- [x] T034 [US2] 実際の更新 Pull Request で、秘密情報を要さない検査が実行され、`e2e` 系が**失敗**として現れること (skipped ではないこと)、失敗の説明に次の手順が書かれていることを確認する (quickstart.md 4a)
+- [x] T035 [US2] その Pull Request のブランチへコミットを 1 つ積み、**必須検査すべてが実行されその結果が Pull Request に紐づくこと**を確認する (FR-015、quickstart.md 4b)
 
 **Checkpoint**: US1 と US2 が独立して機能する。提案と判断材料が揃う
 
@@ -177,9 +177,9 @@ Pull Request が作られることを確認する (quickstart.md 3a、3b)。
 
 ### 検査が確かに落ちることの確認 ⚠️
 
-- [ ] T042 [US3] `workflow_dispatch` で `.github/workflows/scheduled.yml` を走らせ、正常時に報告が出ないことを確認する (quickstart.md 6a の 1 行目、6b の 1 行目)
-- [ ] T043 [US3] `.github/dependabot.yml` の `gomod` の節を一時的に壊した状態で T037 を走らせ、**提案の欠落が報告されること**を確認する。「更新がない」と「仕組みが動いていない」が区別できることがこの検査の目的である (quickstart.md 6a)
-- [ ] T044 [US3] `.github/workflows/scheduled.yml` の滞留の判定について、30 日以内の Pull Request で報告が出ないこと、30 日を超えたもので報告が出ることを確認する。閾値を一時的に下げて確かめてよい (quickstart.md 6b)
+- [x] T042 [US3] `workflow_dispatch` で `.github/workflows/scheduled.yml` を走らせ、正常時に報告が出ないことを確認する (quickstart.md 6a の 1 行目、6b の 1 行目)
+- [x] T043 [US3] `.github/dependabot.yml` の `gomod` の節を一時的に壊した状態で T037 を走らせ、**提案の欠落が報告されること**を確認する。「更新がない」と「仕組みが動いていない」が区別できることがこの検査の目的である (quickstart.md 6a)
+- [x] T044 [US3] `.github/workflows/scheduled.yml` の滞留の判定について、30 日以内の Pull Request で報告が出ないこと、30 日を超えたもので報告が出ることを確認する。閾値を一時的に下げて確かめてよい (quickstart.md 6b)
 
 **Checkpoint**: US1・US2・US3 がすべて独立して機能する
 
@@ -189,7 +189,7 @@ Pull Request が作られることを確認する (quickstart.md 3a、3b)。
 
 - [X] T045 [P] `make all` と `actionlint` がすべて通ることを確認する
 - [ ] T046 [P] `specs/002-dependabot-auto-merge/quickstart.md` を最初から通しで実行し、各節の期待される結果と一致することを確認する
-- [ ] T047 憲章「開発ワークフローと品質ゲート」および「実環境での検証」が必須とする検査の一覧と、ブランチ保護の必須検査の設定を突き合わせる。**依存更新のために減らした集合になっていないこと**を確認する (FR-010、SC-004)
+- [x] T047 憲章「開発ワークフローと品質ゲート」および「実環境での検証」が必須とする検査の一覧と、ブランチ保護の必須検査の設定を突き合わせる。**依存更新のために減らした集合になっていないこと**を確認する (FR-010、SC-004)
 - [ ] T048 `.specify/feature.json` が別の feature を指している場合に備え、本機能の完了時点で `specs/002-dependabot-auto-merge/tasks.md` のチェックがすべて埋まっていることを確認する
 - [x] T049 Dependabot secrets に不要な資格情報が残っていないことを確認する。`DPF_GO_READ_TOKEN` は設けない。`DPF_TOKEN` を Dependabot secret として登録しない (FR-013、quickstart.md 7)
 
