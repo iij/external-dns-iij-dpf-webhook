@@ -1,6 +1,6 @@
 module github.com/iij/external-dns-iij-dpf-webhook
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/iij/dpf-go v0.6.0
