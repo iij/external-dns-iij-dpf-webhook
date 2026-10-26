@@ -10,6 +10,8 @@ constitution が定めています。
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-26
+
 ### Security
 
 - ビルドに使う Go を 1.27.3 へ更新し、標準ライブラリの脆弱性を修正した
@@ -93,5 +95,6 @@ constitution が定めています。
 - `golang.org/x/net` を v0.61.0 へ更新し、HTTP/2 の SETTINGS フレームによる
   サービス拒否 (CVE-2026-78669) を修正した。配布イメージの走査で検出されたもの
 
-[Unreleased]: https://github.com/iij/external-dns-iij-dpf-webhook/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/iij/external-dns-iij-dpf-webhook/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/iij/external-dns-iij-dpf-webhook/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/iij/external-dns-iij-dpf-webhook/releases/tag/v0.1.0
