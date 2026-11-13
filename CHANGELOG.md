@@ -10,6 +10,15 @@ constitution が定めています。
 
 ## [Unreleased]
 
+### Security
+
+- ビルドに使う Go を 1.27.4 へ更新し、標準ライブラリの脆弱性を修正した
+  - `net/http`: GO-2026-6859 (`MaxBytesReader` とヘッダーの競合で HTTP/1 サーバーが停止する)。
+    webhook の HTTP サーバーの経路にある
+- `golang.org/x/net` を v0.62.0 へ更新した
+  - CVE-2026-78661 (`golang.org/x/net/html` の細工された HTML 入力によるサービス拒否)。
+    配布イメージのスキャンで検出された
+
 ## [0.1.1] - 2026-10-26
 
 ### Security
