@@ -132,7 +132,7 @@ jobs:
           tags: ${{ env.IMAGE_NAME }}:sidecar
 
       - name: kind クラスタを起動する
-        uses: helm/kind-action@v1.15.1
+        uses: helm/kind-action@v1.15.2
         with:
           version: v0.33.0
           cluster_name: sidecar
@@ -142,7 +142,7 @@ jobs:
       - name: イメージをクラスタへ読み込む
         run: kind load docker-image "${IMAGE_NAME}:sidecar" --name sidecar
 
-      - uses: azure/setup-helm@v5.0.1
+      - uses: azure/setup-helm@v5.1.0
         with:
           version: v3.19.0
 
